@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { TaskCard, TASK_GRID } from "@/components/shared/TaskCard"
+import { TaskGridCard } from "@/components/shared/TaskGridCard"
 import { TaskDetailCard } from "@/components/shared/TaskDetailCard"
 import { CreateTaskForm, type CreateTaskFormData } from "@/components/forms/CreateTaskForm"
 import { EditTaskForm, type EditTaskFormData } from "@/components/forms/EditTaskForm"
@@ -17,7 +18,7 @@ import { tasksApi, authApi, type Task as ApiTask } from "@/services/api"
 import { FilterBar } from "@/components/shared/FilterBar"
 import { StatsBar } from "@/components/shared/StatsBar"
 import { cn } from "@/lib/utils"
-import { Plus, X, ArrowLeft, Sun, Moon, LogOut, Settings } from "lucide-react"
+import { Plus, X, ArrowLeft, Sun, Moon, LogOut, Settings, LayoutGrid, List } from "lucide-react"
 import { useTheme } from "@/hooks/use-theme"
 import { useAuth } from "@/context/AuthContext"
 import { useNavigate } from "@tanstack/react-router"
@@ -37,6 +38,7 @@ function toTask(t: ApiTask) {
 }
 
 export function TasksPage() {
+  const [viewMode, setViewMode] = useState<"list" | "grid">("grid")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -230,7 +232,7 @@ export function TasksPage() {
             />
           ) : (
             <>
-              {/* Sticky filter bar + column header */}
+              {/* Sticky filter bar + view toggle */}
               <div className="sticky top-0 z-10 bg-background">
                 <FilterBar
                   search={search}
@@ -246,34 +248,83 @@ export function TasksPage() {
                   resultCount={filteredTasks.length}
                   totalCount={tasks.length}
                 />
-                <div className={cn(
-                  "bg-background border-b grid items-center gap-3 px-4 py-2 text-xs text-muted-foreground font-semibold uppercase tracking-wide",
-                  TASK_GRID
-                )}>
-                  <span className="text-center">Pri</span>
-                  <span>Title</span>
-                  <span>Status</span>
-                  <span className="hidden md:block">Deadline</span>
-                  <span className="hidden lg:block text-right">Assignees</span>
-                  <span />
+                {/* View toggle bar */}
+                <div className="bg-background border-b px-4 py-2 flex items-center justify-between">
+                  {viewMode === "list" && (
+                    <div className={cn(
+                      "flex-1 grid items-center gap-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide",
+                      TASK_GRID
+                    )}>
+                      <span className="text-center">Pri</span>
+                      <span>Title</span>
+                      <span>Status</span>
+                      <span className="hidden md:block">Deadline</span>
+                      <span className="hidden lg:block text-right">Assignees</span>
+                      <span />
+                    </div>
+                  )}
+                  {viewMode === "grid" && <span />}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => setViewMode("list")}
+                      aria-label="List view"
+                      className={cn(
+                        "h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                        viewMode === "list"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted"
+                      )}
+                    >
+                      <List className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => setViewMode("grid")}
+                      aria-label="Grid view"
+                      className={cn(
+                        "h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                        viewMode === "grid"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted"
+                      )}
+                    >
+                      <LayoutGrid className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="p-3 space-y-1">
-                {filteredTasks.length === 0 ? (
-                  <div className="py-12 text-center text-sm text-muted-foreground">
-                    No tasks match your filters
-                  </div>
-                ) : filteredTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    {...task}
-                    isSelected={selectedId === task.id}
-                    onTaskClick={(id) => setSelectedId((prev) => prev === id ? null : id)}
-                  />
-                ))
-                }
-              </div>
+              {filteredTasks.length === 0 ? (
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                  No tasks match your filters
+                </div>
+              ) : viewMode === "grid" ? (
+                <div className={cn(
+                  "p-3 sm:p-4 grid gap-3",
+                  selectedTask
+                    ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-2"
+                    : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+                )}>
+                  {filteredTasks.map((task) => (
+                    <TaskGridCard
+                      key={task.id}
+                      {...task}
+                      isSelected={selectedId === task.id}
+                      onTaskClick={(id) => setSelectedId((prev) => prev === id ? null : id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="p-3 space-y-1">
+                  {filteredTasks.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      {...task}
+                      isSelected={selectedId === task.id}
+                      onTaskClick={(id) => setSelectedId((prev) => prev === id ? null : id)}
+                    />
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>
