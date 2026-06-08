@@ -274,6 +274,80 @@ async def voice_list_tasks(args: ListTasksArgs, request: Request):
     return {"result": summary}
 
 
+# ── Tool: update_task_details ────────────────────────────────────────────────
+
+class UpdateTaskDetailsArgs(BaseModel):
+    voice_token: str
+    task_title: str                  # partial match to find the task
+    new_title: Optional[str] = None
+    description: Optional[str] = None
+    deadline: Optional[str] = None   # YYYY-MM-DD
+    priority: Optional[str] = None   # low / medium / high / urgent
+
+
+@router.post("/update-task-details")
+async def voice_update_task_details(args: UpdateTaskDetailsArgs, request: Request):
+    _verify_retell(request)
+    payload = _decode_voice_token(args.voice_token)
+    user_id = payload["sub"]
+    org_id = payload["org"]
+
+    # Build the update dict from whatever was provided
+    updates: dict = {}
+
+    if args.new_title and args.new_title.strip():
+        updates["title"] = args.new_title.strip()
+
+    if args.description is not None:
+        updates["description"] = args.description.strip()
+
+    if args.deadline:
+        parsed = _parse_deadline(args.deadline)
+        if not parsed:
+            return {"result": f"I couldn't understand the deadline '{args.deadline}'. Please say it as a date like June 20th 2026."}
+        updates["deadline"] = parsed
+
+    if args.priority:
+        priority_map = {"low": "low", "medium": "medium", "high": "high", "urgent": "urgent"}
+        mapped = priority_map.get(args.priority.lower().strip())
+        if not mapped:
+            return {"result": f"I don't recognise the priority '{args.priority}'. You can say low, medium, high, or urgent."}
+        updates["priority"] = mapped
+
+    if not updates:
+        return {"result": "No changes were provided. Please tell me what you'd like to update — title, description, deadline, or priority."}
+
+    # Find the task by partial title match (same org, not deleted, caller is assignee or creator)
+    pattern = re.compile(re.escape(args.task_title.strip()), re.IGNORECASE)
+    query = {
+        "org_id": ObjectId(org_id) if org_id else None,
+        "deleted_at": None,
+        "$or": [
+            {"assigned_to": {"$elemMatch": {"id": user_id}}},
+            {"created_by.id": user_id},
+        ],
+    }
+    doc = None
+    async for candidate in tasks_collection.find(query):
+        if pattern.search(candidate.get("title", "")):
+            doc = candidate
+            break
+
+    if not doc:
+        return {"result": f"I couldn't find a task matching '{args.task_title}' in your list. Could you say the task name again?"}
+
+    await tasks_collection.update_one({"_id": doc["_id"]}, {"$set": updates})
+
+    changed = []
+    if "title" in updates:       changed.append(f"title to '{updates['title']}'")
+    if "description" in updates: changed.append("description")
+    if "deadline" in updates:    changed.append(f"deadline to {updates['deadline'].strftime('%B %d, %Y')}")
+    if "priority" in updates:    changed.append(f"priority to {updates['priority']}")
+
+    summary = " and ".join(changed)
+    return {"result": f"Done. I've updated the task '{doc['title']}' — changed {summary}. Anything else?"}
+
+
 # ── Tool: find_member ─────────────────────────────────────────────────────────
 
 class FindMemberArgs(BaseModel):

@@ -80,14 +80,31 @@ MCP_TOOLS = [
             "required": ["voice_token", "name"],
         },
     },
+    {
+        "name": "update_task_details",
+        "description": "Edit the title, description, deadline, or priority of an existing task found by partial title match. All fields except voice_token and task_title are optional — only include what needs to change.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "voice_token": {"type": "string"},
+                "task_title":  {"type": "string", "description": "Full or partial title of the task to find"},
+                "new_title":   {"type": "string", "description": "Replacement title for the task"},
+                "description": {"type": "string", "description": "New description text"},
+                "deadline":    {"type": "string", "description": "New deadline as ISO date YYYY-MM-DD"},
+                "priority":    {"type": "string", "enum": ["low", "medium", "high", "urgent"]},
+            },
+            "required": ["voice_token", "task_title"],
+        },
+    },
 ]
 
 TOOL_ROUTES = {
-    "verify_user":       "/verify-user",
-    "create_task":       "/create-task",
-    "update_task_status": "/update-task",
-    "list_my_tasks":     "/list-tasks",
-    "find_member":       "/find-member",
+    "verify_user":         "/verify-user",
+    "create_task":         "/create-task",
+    "update_task_status":  "/update-task",
+    "list_my_tasks":       "/list-tasks",
+    "find_member":         "/find-member",
+    "update_task_details": "/update-task-details",
 }
 
 
