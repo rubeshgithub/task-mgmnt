@@ -48,7 +48,7 @@ def _can_manage_task(doc: dict, current_user: dict) -> bool:
     return doc.get("created_by", {}).get("id") == current_user["id"]
 
 
-@router.get("/", response_model=list[Task])
+@router.get("", response_model=list[Task])
 async def list_tasks(current_user: dict = Depends(get_current_user)):
     query = _org_filter(current_user)
     if current_user.get("role") == "member":
@@ -57,7 +57,7 @@ async def list_tasks(current_user: dict = Depends(get_current_user)):
     return [doc_to_task(d) for d in docs]
 
 
-@router.post("/", response_model=Task, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=Task, status_code=status.HTTP_201_CREATED)
 async def create_task(data: TaskCreate, current_user: dict = Depends(get_current_user)):
     assignees = [a.model_dump() for a in data.assigned_to] if data.assigned_to else [
         {"id": current_user["id"], "name": current_user["name"], "email": current_user["email"]}
