@@ -6,11 +6,14 @@ interface TaskForStats {
   deadline: string | Date
 }
 
+export type StatFilter = "all" | "in_progress" | "completed" | "overdue" | "urgent"
+
 interface Stat {
   label: string
   value: number
   valueClass: string
   subLabel?: string
+  filterType: StatFilter
 }
 
 const DONE = new Set(["completed", "reviewed"])
@@ -30,59 +33,52 @@ function buildStats(tasks: TaskForStats[]): Stat[] {
   const rate = total > 0 ? Math.round((completed / total) * 100) : 0
 
   return [
-    {
-      label: "Total Tasks",
-      value: total,
-      valueClass: "text-foreground",
-    },
-    {
-      label: "In Progress",
-      value: inProgress,
-      valueClass: "text-primary",
-    },
-    {
-      label: "Completed",
-      value: completed,
-      valueClass: "text-emerald-600 dark:text-emerald-400",
-      subLabel: `${rate}% rate`,
-    },
-    {
-      label: "Overdue",
-      value: overdue,
-      valueClass: overdue > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground",
-    },
-    {
-      label: "Urgent",
-      value: urgent,
-      valueClass: urgent > 0 ? "text-orange-600 dark:text-orange-400" : "text-muted-foreground",
-    },
+    { label: "Total Tasks", value: total,      valueClass: "text-foreground",                                              filterType: "all",         subLabel: undefined },
+    { label: "In Progress", value: inProgress, valueClass: "text-primary",                                                 filterType: "in_progress", subLabel: undefined },
+    { label: "Completed",   value: completed,  valueClass: "text-emerald-600 dark:text-emerald-400",                       filterType: "completed",   subLabel: `${rate}% rate` },
+    { label: "Overdue",     value: overdue,    valueClass: overdue > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground", filterType: "overdue", subLabel: undefined },
+    { label: "Urgent",      value: urgent,     valueClass: urgent > 0 ? "text-orange-600 dark:text-orange-400" : "text-muted-foreground", filterType: "urgent", subLabel: undefined },
   ]
 }
 
 interface StatsBarProps {
   tasks: TaskForStats[]
+  activeFilter?: StatFilter | null
+  onStatClick?: (type: StatFilter) => void
 }
 
-export function StatsBar({ tasks }: StatsBarProps) {
+export function StatsBar({ tasks, activeFilter, onStatClick }: StatsBarProps) {
   const stats = buildStats(tasks)
 
   return (
     <div className="shrink-0 bg-card border-b grid grid-cols-5 divide-x">
-      {stats.map(({ label, value, valueClass, subLabel }) => (
-        <div key={label} className="px-3 sm:px-5 py-3 flex flex-col gap-0.5">
-          <span className={cn("text-xl sm:text-2xl font-bold tabular-nums leading-none", valueClass)}>
-            {value}
-          </span>
-          <span className="text-[10px] sm:text-xs text-muted-foreground font-medium leading-tight truncate">
-            {label}
-          </span>
-          {subLabel && (
-            <span className="text-[10px] text-muted-foreground/70 leading-tight hidden sm:block">
-              {subLabel}
+      {stats.map(({ label, value, valueClass, subLabel, filterType }) => {
+        const isActive = activeFilter === filterType || (filterType === "all" && !activeFilter)
+        return (
+          <button
+            key={label}
+            type="button"
+            onClick={() => onStatClick?.(filterType)}
+            className={cn(
+              "px-3 sm:px-5 py-3 flex flex-col gap-0.5 text-left transition-colors",
+              "hover:bg-muted/60",
+              isActive && activeFilter !== null && "bg-primary/5 border-b-2 border-primary"
+            )}
+          >
+            <span className={cn("text-xl sm:text-2xl font-bold tabular-nums leading-none", valueClass)}>
+              {value}
             </span>
-          )}
-        </div>
-      ))}
+            <span className="text-[10px] sm:text-xs text-muted-foreground font-medium leading-tight truncate">
+              {label}
+            </span>
+            {subLabel && (
+              <span className="text-[10px] text-muted-foreground/70 leading-tight hidden sm:block">
+                {subLabel}
+              </span>
+            )}
+          </button>
+        )
+      })}
     </div>
   )
 }

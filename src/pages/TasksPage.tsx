@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { TaskCard, TASK_GRID } from "@/components/shared/TaskCard"
 import { TaskGridCard } from "@/components/shared/TaskGridCard"
+import { KanbanBoard } from "@/components/shared/KanbanBoard"
 import { TaskDetailCard } from "@/components/shared/TaskDetailCard"
 import { CreateTaskForm, type CreateTaskFormData } from "@/components/forms/CreateTaskForm"
 import { EditTaskForm, type EditTaskFormData } from "@/components/forms/EditTaskForm"
@@ -16,14 +17,20 @@ import type { TaskStatus } from "@/components/shared/StatusBadge"
 import type { Priority } from "@/components/shared/PriorityBadge"
 import { tasksApi, authApi, type Task as ApiTask } from "@/services/api"
 import { FilterBar } from "@/components/shared/FilterBar"
-import { StatsBar } from "@/components/shared/StatsBar"
+import { StatsBar, type StatFilter } from "@/components/shared/StatsBar"
 import { cn } from "@/lib/utils"
-import { Plus, X, ArrowLeft, Sun, Moon, LogOut, Settings, LayoutGrid, List } from "lucide-react"
+import {
+  Plus, X, ArrowLeft, Sun, Moon, LogOut, Settings,
+  LayoutGrid, List, LayoutDashboard,
+} from "lucide-react"
 import { useTheme } from "@/hooks/use-theme"
 import { useAuth } from "@/context/AuthContext"
 import { useNavigate } from "@tanstack/react-router"
 
-// Map API task (ISO date strings) → component shape (Date objects)
+type ViewMode = "list" | "grid" | "kanban"
+
+const DONE = new Set<TaskStatus>(["completed", "reviewed"])
+
 function toTask(t: ApiTask) {
   return {
     ...t,
@@ -38,7 +45,7 @@ function toTask(t: ApiTask) {
 }
 
 export function TasksPage() {
-  const [viewMode, setViewMode] = useState<"list" | "grid">("grid")
+  const [viewMode, setViewMode] = useState<ViewMode>("grid")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -47,6 +54,9 @@ export function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<Set<TaskStatus>>(new Set())
   const [priorityFilter, setPriorityFilter] = useState<Set<Priority>>(new Set())
   const [assigneeFilter, setAssigneeFilter] = useState<Set<string>>(new Set())
+  const [overdueFilter, setOverdueFilter] = useState(false)
+  const [activeStatFilter, setActiveStatFilter] = useState<StatFilter | null>(null)
+
   const { toast } = useToast()
   const qc = useQueryClient()
   const { theme, toggle: toggleTheme } = useTheme()
@@ -75,6 +85,10 @@ export function TasksPage() {
     if (statusFilter.size > 0 && !statusFilter.has(t.status)) return false
     if (priorityFilter.size > 0 && !priorityFilter.has(t.priority)) return false
     if (assigneeFilter.size > 0 && !t.assignedTo.some((a) => assigneeFilter.has(a.id))) return false
+    if (overdueFilter) {
+      if (DONE.has(t.status)) return false
+      if (t.deadline >= new Date()) return false
+    }
     return true
   })
 
@@ -92,6 +106,25 @@ export function TasksPage() {
     setStatusFilter(new Set())
     setPriorityFilter(new Set())
     setAssigneeFilter(new Set())
+    setOverdueFilter(false)
+    setActiveStatFilter(null)
+  }
+
+  const handleStatClick = (type: StatFilter) => {
+    setSearch("")
+    setStatusFilter(new Set())
+    setPriorityFilter(new Set())
+    setAssigneeFilter(new Set())
+    setOverdueFilter(false)
+    if (type === "all") {
+      setActiveStatFilter(null)
+      return
+    }
+    setActiveStatFilter(type)
+    if (type === "in_progress") setStatusFilter(new Set(["assigned", "started", "in_progress"]))
+    else if (type === "completed") setStatusFilter(new Set(["completed", "reviewed"]))
+    else if (type === "overdue") setOverdueFilter(true)
+    else if (type === "urgent") setPriorityFilter(new Set(["urgent"]))
   }
 
   const selectedTask = tasks.find((t) => t.id === selectedId) ?? null
@@ -158,6 +191,9 @@ export function TasksPage() {
     toast({ title: "Status updated", description: `Moved to "${newStatus.replace("_", " ")}".` })
   }
 
+  const handleTaskClick = (id: string) =>
+    setSelectedId((prev) => (prev === id ? null : id))
+
   if (isLoading) return <LoadingSpinner message="Loading tasks..." className="min-h-screen" />
   if (isError) return (
     <div className="min-h-screen flex items-center justify-center text-muted-foreground text-sm">
@@ -171,15 +207,11 @@ export function TasksPage() {
       <header className="bg-card border-b px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-10 shrink-0">
         <div>
           <h1 className="text-lg font-bold leading-tight">{user?.org_name || "Task Management"}</h1>
-          <p className="hidden sm:block text-xs text-muted-foreground">
-            {tasks.length} tasks
-          </p>
+          <p className="hidden sm:block text-xs text-muted-foreground">{tasks.length} tasks</p>
         </div>
         <div className="flex items-center gap-2">
           {user && (
-            <span className="hidden sm:block text-xs text-muted-foreground">
-              {user.name}
-            </span>
+            <span className="hidden sm:block text-xs text-muted-foreground">{user.name}</span>
           )}
           <button
             onClick={toggleTheme}
@@ -188,8 +220,7 @@ export function TasksPage() {
           >
             {theme === "dark"
               ? <Sun className="h-4 w-4 text-muted-foreground" />
-              : <Moon className="h-4 w-4 text-muted-foreground" />
-            }
+              : <Moon className="h-4 w-4 text-muted-foreground" />}
           </button>
           <button
             onClick={() => navigate({ to: "/settings" })}
@@ -212,16 +243,17 @@ export function TasksPage() {
         </div>
       </header>
 
-      {/* Stats */}
-      <StatsBar tasks={tasks} />
+      {/* Stats — clickable */}
+      <StatsBar tasks={tasks} activeFilter={activeStatFilter} onStatClick={handleStatClick} />
 
       {/* Body */}
       <div className="flex flex-1 min-h-0">
 
-        {/* Task list */}
+        {/* Task list / grid / kanban area */}
         <div className={cn(
-          "flex flex-col overflow-y-auto transition-all w-full",
-          selectedTask && "md:w-[55%] lg:w-3/5"
+          "flex flex-col min-h-0 transition-all w-full",
+          selectedTask && "md:w-[55%] lg:w-3/5",
+          viewMode !== "kanban" && "overflow-y-auto"
         )}>
           {tasks.length === 0 ? (
             <EmptyState
@@ -232,25 +264,26 @@ export function TasksPage() {
             />
           ) : (
             <>
-              {/* Sticky filter bar + view toggle */}
-              <div className="sticky top-0 z-10 bg-background">
+              {/* Sticky filter + view toggle bar */}
+              <div className="sticky top-0 z-10 bg-background shrink-0">
                 <FilterBar
                   search={search}
-                  onSearchChange={setSearch}
+                  onSearchChange={(v) => { setSearch(v); setActiveStatFilter(null) }}
                   statusFilter={statusFilter}
-                  onStatusToggle={toggleStatus}
+                  onStatusToggle={(s) => { toggleStatus(s); setActiveStatFilter(null) }}
                   priorityFilter={priorityFilter}
-                  onPriorityToggle={togglePriority}
+                  onPriorityToggle={(p) => { togglePriority(p); setActiveStatFilter(null) }}
                   assigneeFilter={assigneeFilter}
-                  onAssigneeToggle={toggleAssignee}
+                  onAssigneeToggle={(id) => { toggleAssignee(id); setActiveStatFilter(null) }}
                   users={users}
                   onClear={clearFilters}
                   resultCount={filteredTasks.length}
                   totalCount={tasks.length}
                 />
-                {/* View toggle bar */}
-                <div className="bg-background border-b px-4 py-2 flex items-center justify-between">
-                  {viewMode === "list" && (
+
+                {/* Column headers (list only) + view toggle */}
+                <div className="bg-background border-b px-4 py-2 flex items-center justify-between gap-2">
+                  {viewMode === "list" ? (
                     <div className={cn(
                       "flex-1 grid items-center gap-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide",
                       TASK_GRID
@@ -262,38 +295,46 @@ export function TasksPage() {
                       <span className="hidden lg:block text-right">Assignees</span>
                       <span />
                     </div>
+                  ) : (
+                    <span className="flex-1 text-xs text-muted-foreground">
+                      {filteredTasks.length !== tasks.length
+                        ? `${filteredTasks.length} of ${tasks.length} tasks`
+                        : `${tasks.length} tasks`}
+                    </span>
                   )}
-                  {viewMode === "grid" && <span />}
+
+                  {/* View toggle */}
                   <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => setViewMode("list")}
-                      aria-label="List view"
-                      className={cn(
-                        "h-7 w-7 flex items-center justify-center rounded-md transition-colors",
-                        viewMode === "list"
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-muted"
-                      )}
-                    >
-                      <List className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => setViewMode("grid")}
-                      aria-label="Grid view"
-                      className={cn(
-                        "h-7 w-7 flex items-center justify-center rounded-md transition-colors",
-                        viewMode === "grid"
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-muted"
-                      )}
-                    >
-                      <LayoutGrid className="h-4 w-4" />
-                    </button>
+                    {(["list", "grid", "kanban"] as ViewMode[]).map((mode) => {
+                      const Icon = mode === "list" ? List : mode === "grid" ? LayoutGrid : LayoutDashboard
+                      return (
+                        <button
+                          key={mode}
+                          onClick={() => setViewMode(mode)}
+                          aria-label={`${mode} view`}
+                          className={cn(
+                            "h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                            viewMode === mode
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:bg-muted"
+                          )}
+                        >
+                          <Icon className="h-4 w-4" />
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               </div>
 
-              {filteredTasks.length === 0 ? (
+              {/* Content */}
+              {viewMode === "kanban" ? (
+                <KanbanBoard
+                  tasks={filteredTasks}
+                  selectedId={selectedId}
+                  onTaskClick={handleTaskClick}
+                />
+              ) : filteredTasks.length === 0 ? (
                 <div className="py-12 text-center text-sm text-muted-foreground">
                   No tasks match your filters
                 </div>
@@ -309,7 +350,7 @@ export function TasksPage() {
                       key={task.id}
                       {...task}
                       isSelected={selectedId === task.id}
-                      onTaskClick={(id) => setSelectedId((prev) => prev === id ? null : id)}
+                      onTaskClick={handleTaskClick}
                     />
                   ))}
                 </div>
@@ -320,7 +361,7 @@ export function TasksPage() {
                       key={task.id}
                       {...task}
                       isSelected={selectedId === task.id}
-                      onTaskClick={(id) => setSelectedId((prev) => prev === id ? null : id)}
+                      onTaskClick={handleTaskClick}
                     />
                   ))}
                 </div>
@@ -373,7 +414,7 @@ export function TasksPage() {
         onSubmit={handleCreateTask}
         isLoading={createMutation.isPending}
       />
-      {/* Delete confirmation */}
+
       <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
         <DialogContent className="max-w-sm rounded-lg">
           <DialogHeader>
@@ -384,9 +425,7 @@ export function TasksPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setIsDeleteConfirmOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</Button>
             <Button
               variant="destructive"
               disabled={deleteMutation.isPending}
