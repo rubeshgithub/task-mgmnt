@@ -1,0 +1,148 @@
+"""
+MCP (Model Context Protocol) server — exposes voice tools so Claude
+can be used as the Custom LLM brain inside Retell AI.
+
+Protocol: JSON-RPC 2.0 over HTTP POST /api/mcp
+"""
+import os
+import httpx
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+
+router = APIRouter(prefix="/api/mcp", tags=["mcp"])
+
+# On Railway the app talks to itself via the internal service URL
+_self = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+BASE = f"https://{_self}/api/voice" if _self else "http://localhost:8000/api/voice"
+
+MCP_TOOLS = [
+    {
+        "name": "verify_user",
+        "description": "Authenticate the caller by email and voice PIN. Must be called first. Returns a voice_token for subsequent calls.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "email":  {"type": "string", "description": "Caller's email address"},
+                "pin":    {"type": "string", "description": "Caller's 4-6 digit voice PIN"},
+            },
+            "required": ["email", "pin"],
+        },
+    },
+    {
+        "name": "create_task",
+        "description": "Create a new task on behalf of the authenticated caller.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "voice_token":    {"type": "string", "description": "Token returned by verify_user"},
+                "title":          {"type": "string", "description": "Task title"},
+                "description":    {"type": "string", "description": "Task description"},
+                "deadline":       {"type": "string", "description": "Deadline as ISO date string (YYYY-MM-DD). Resolve relative dates like 'next Friday' before calling."},
+                "priority":       {"type": "string", "enum": ["low", "medium", "high", "urgent"]},
+                "assignee_name":  {"type": "string", "description": "Full or partial name of the team member to assign to. Omit to assign to caller."},
+            },
+            "required": ["voice_token", "title", "deadline"],
+        },
+    },
+    {
+        "name": "update_task_status",
+        "description": "Update the status of a task by its title (partial match).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "voice_token": {"type": "string"},
+                "task_title":  {"type": "string", "description": "Full or partial task title to search for"},
+                "new_status":  {"type": "string", "enum": ["started", "in_progress", "completed", "on_hold"]},
+            },
+            "required": ["voice_token", "task_title", "new_status"],
+        },
+    },
+    {
+        "name": "list_my_tasks",
+        "description": "List the caller's open tasks. Returns up to 10 tasks sorted by deadline.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "voice_token": {"type": "string"},
+            },
+            "required": ["voice_token"],
+        },
+    },
+    {
+        "name": "find_member",
+        "description": "Look up a team member by name to confirm who to assign a task to.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "voice_token": {"type": "string"},
+                "name":        {"type": "string", "description": "Full or partial name to search"},
+            },
+            "required": ["voice_token", "name"],
+        },
+    },
+]
+
+TOOL_ROUTES = {
+    "verify_user":       "/verify-user",
+    "create_task":       "/create-task",
+    "update_task_status": "/update-task",
+    "list_my_tasks":     "/list-tasks",
+    "find_member":       "/find-member",
+}
+
+
+@router.post("")
+async def mcp_endpoint(request: Request):
+    body = await request.json()
+    method = body.get("method")
+    req_id = body.get("id")
+    params = body.get("params", {})
+
+    # ── initialize ────────────────────────────────────────────────────────────
+    if method == "initialize":
+        return JSONResponse({
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "taskflow-voice", "version": "1.0.0"},
+            },
+        })
+
+    # ── tools/list ────────────────────────────────────────────────────────────
+    if method == "tools/list":
+        return JSONResponse({
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"tools": MCP_TOOLS},
+        })
+
+    # ── tools/call ────────────────────────────────────────────────────────────
+    if method == "tools/call":
+        tool_name = params.get("name")
+        arguments = params.get("arguments", {})
+        route = TOOL_ROUTES.get(tool_name)
+
+        if not route:
+            return JSONResponse({
+                "jsonrpc": "2.0", "id": req_id,
+                "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
+            })
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(f"{BASE}{route}", json=arguments, timeout=10)
+            data = resp.json()
+
+        return JSONResponse({
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {
+                "content": [{"type": "text", "text": str(data.get("result", ""))}],
+                "isError": False,
+                "_meta": {k: v for k, v in data.items() if k != "result"},
+            },
+        })
+
+    # ── unknown method ────────────────────────────────────────────────────────
+    return JSONResponse({
+        "jsonrpc": "2.0", "id": req_id,
+        "error": {"code": -32601, "message": f"Method not found: {method}"},
+    }, status_code=400)
