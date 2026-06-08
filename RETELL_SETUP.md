@@ -197,7 +197,7 @@ In Retell → Agent → Tools, add each tool with these settings:
 
 For each tool, add the request header:
 ```
-x-retell-api-key: key_c2f009e83a4ebd857569cd0ca470
+x-retell-api-key: <your RETELL_API_KEY from Railway env vars>
 ```
 
 Use the JSON schemas defined in the MCP server (`/api/mcp` → `tools/list`) as the tool input schemas.

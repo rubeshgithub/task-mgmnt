@@ -8,6 +8,7 @@ Auth flow:
   2. All other tools pass voice_token in args
 """
 import os
+import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,7 @@ from typing import Optional
 from app.database import users_collection, tasks_collection, orgs_collection
 from app.auth import verify_password, hash_password
 from app.models import Priority
+from app.services.notifications import notify_task_assigned, notify_task_completed
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,7 @@ router = APIRouter(prefix="/api/voice", tags=["voice"])
 VOICE_SECRET = os.getenv("VOICE_JWT_SECRET", "voice-secret-change-this")
 VOICE_TOKEN_MINUTES = 15
 RETELL_API_KEY = os.getenv("RETELL_API_KEY", "")
+APP_URL = os.getenv("APP_URL", "http://localhost:5173")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -179,6 +182,28 @@ async def voice_create_task(args: CreateTaskArgs, request: Request):
     await tasks_collection.insert_one(doc)
 
     deadline_str = deadline.strftime("%B %d, %Y")
+
+    # Notify assignee if it's someone other than the caller
+    if assignee["id"] != user_id:
+        assignee_phone = member.get("phone") if args.assignee_name and member else None
+
+        async def _notify_assigned():
+            try:
+                await notify_task_assigned(
+                    assignee_email=assignee["email"],
+                    assignee_name=assignee["name"],
+                    assignee_phone=assignee_phone,
+                    task_title=args.title,
+                    task_priority=priority,
+                    task_deadline=deadline_str,
+                    assigned_by=creator["name"],
+                    task_url=f"{APP_URL}/tasks",
+                )
+            except Exception as e:
+                logger.error("Voice assignment notification failed: %s", e)
+
+        asyncio.ensure_future(_notify_assigned())
+
     return {
         "result": (
             f"Done. I've created the task '{args.title}', assigned to {assignee_display}, "
@@ -237,6 +262,27 @@ async def voice_update_task(args: UpdateTaskArgs, request: Request):
         return {"result": f"I couldn't find a task matching '{args.task_title}' in your list. Could you say the task name again?"}
 
     await tasks_collection.update_one({"_id": doc["_id"]}, {"$set": {"status": new_status}})
+
+    # Notify creator when a task is completed
+    if new_status == "completed":
+        creator = doc.get("created_by", {})
+        if creator.get("email"):
+            caller_doc = await users_collection.find_one({"_id": ObjectId(user_id)})
+            caller_name = caller_doc["name"] if caller_doc else "Someone"
+
+            async def _notify_completed():
+                try:
+                    await notify_task_completed(
+                        creator_email=creator["email"],
+                        task_title=doc["title"],
+                        completed_by=caller_name,
+                        task_url=f"{APP_URL}/tasks",
+                    )
+                except Exception as e:
+                    logger.error("Voice completion notification failed: %s", e)
+
+            asyncio.ensure_future(_notify_completed())
+
     readable = new_status.replace("_", " ")
     return {"result": f"Updated. '{doc['title']}' is now marked as {readable}."}
 
