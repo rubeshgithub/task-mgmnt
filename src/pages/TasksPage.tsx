@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { TaskCard, TASK_GRID } from "@/components/shared/TaskCard"
 import { TaskGridCard } from "@/components/shared/TaskGridCard"
 import { KanbanBoard } from "@/components/shared/KanbanBoard"
+import { CalendarView } from "@/components/shared/CalendarView"
+import { BulkActionBar } from "@/components/shared/BulkActionBar"
 import { TaskDetailCard } from "@/components/shared/TaskDetailCard"
 import { CreateTaskForm, type CreateTaskFormData } from "@/components/forms/CreateTaskForm"
 import { EditTaskForm, type EditTaskFormData } from "@/components/forms/EditTaskForm"
@@ -21,13 +23,16 @@ import { StatsBar, type StatFilter } from "@/components/shared/StatsBar"
 import { cn } from "@/lib/utils"
 import {
   Plus, X, ArrowLeft, Sun, Moon, LogOut, Settings,
-  LayoutGrid, List, LayoutDashboard,
+  LayoutGrid, List, LayoutDashboard, CalendarDays, CheckSquare, Check,
+  ArrowUp, ArrowDown, ArrowUpDown,
 } from "lucide-react"
 import { useTheme } from "@/hooks/use-theme"
 import { useAuth } from "@/context/AuthContext"
 import { useNavigate } from "@tanstack/react-router"
+import { NotificationBell } from "@/components/shared/NotificationBell"
 
-type ViewMode = "list" | "grid" | "kanban"
+type ViewMode = "list" | "grid" | "kanban" | "calendar"
+type SortBy = "title" | "deadline" | "priority" | "status"
 
 const DONE = new Set<TaskStatus>(["completed", "reviewed"])
 
@@ -47,6 +52,8 @@ function toTask(t: ApiTask) {
 export function TasksPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid")
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [bulkMode, setBulkMode] = useState(false)
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
@@ -56,6 +63,8 @@ export function TasksPage() {
   const [assigneeFilter, setAssigneeFilter] = useState<Set<string>>(new Set())
   const [overdueFilter, setOverdueFilter] = useState(false)
   const [activeStatFilter, setActiveStatFilter] = useState<StatFilter | null>(null)
+  const [sortBy, setSortBy] = useState<SortBy | null>(null)
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
 
   const { toast } = useToast()
   const qc = useQueryClient()
@@ -92,6 +101,23 @@ export function TasksPage() {
     return true
   })
 
+  const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
+  const STATUS_ORDER: Record<string, number> = { assigned: 0, started: 1, in_progress: 2, on_hold: 3, completed: 4, reviewed: 5 }
+
+  const toggleSort = (col: SortBy) => {
+    if (sortBy === col) setSortDir((d) => d === "asc" ? "desc" : "asc")
+    else { setSortBy(col); setSortDir("asc") }
+  }
+
+  const sortedTasks = sortBy ? [...filteredTasks].sort((a, b) => {
+    let cmp = 0
+    if (sortBy === "title") cmp = a.title.localeCompare(b.title)
+    else if (sortBy === "deadline") cmp = a.deadline.getTime() - b.deadline.getTime()
+    else if (sortBy === "priority") cmp = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+    else if (sortBy === "status") cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status]
+    return sortDir === "asc" ? cmp : -cmp
+  }) : filteredTasks
+
   const toggleStatus = (s: TaskStatus) =>
     setStatusFilter((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n })
 
@@ -108,6 +134,41 @@ export function TasksPage() {
     setAssigneeFilter(new Set())
     setOverdueFilter(false)
     setActiveStatFilter(null)
+  }
+
+  const toggleBulkSelect = (id: string) => {
+    setBulkSelected((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const exitBulkMode = () => {
+    setBulkMode(false)
+    setBulkSelected(new Set())
+  }
+
+  const handleBulkStatusChange = async (newStatus: TaskStatus) => {
+    await Promise.all([...bulkSelected].map((id) => tasksApi.update(id, { status: newStatus })))
+    qc.invalidateQueries({ queryKey: ["tasks"] })
+    toast({ title: `${bulkSelected.size} tasks updated to "${newStatus.replace("_", " ")}"` })
+    exitBulkMode()
+  }
+
+  const handleBulkPriorityChange = async (priority: string) => {
+    await Promise.all([...bulkSelected].map((id) => tasksApi.update(id, { priority })))
+    qc.invalidateQueries({ queryKey: ["tasks"] })
+    toast({ title: `${bulkSelected.size} tasks updated` })
+    exitBulkMode()
+  }
+
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Delete ${bulkSelected.size} task${bulkSelected.size > 1 ? "s" : ""}? This cannot be undone.`)) return
+    await Promise.all([...bulkSelected].map((id) => tasksApi.delete(id)))
+    qc.invalidateQueries({ queryKey: ["tasks"] })
+    toast({ title: `${bulkSelected.size} tasks deleted`, variant: "destructive" })
+    exitBulkMode()
   }
 
   const handleStatClick = (type: StatFilter) => {
@@ -223,6 +284,7 @@ export function TasksPage() {
           {user && (
             <span className="hidden sm:block text-xs text-muted-foreground">{user.name}</span>
           )}
+          <NotificationBell />
           <button
             onClick={toggleTheme}
             className="h-8 w-8 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors"
@@ -263,7 +325,7 @@ export function TasksPage() {
         <div className={cn(
           "flex flex-col min-h-0 transition-all w-full",
           selectedTask && "md:w-[55%] lg:w-3/5",
-          viewMode !== "kanban" && "overflow-y-auto"
+          viewMode !== "kanban" && viewMode !== "calendar" && "overflow-y-auto"
         )}>
           {tasks.length === 0 ? (
             <EmptyState
@@ -274,7 +336,7 @@ export function TasksPage() {
             />
           ) : (
             <>
-              {/* Sticky filter + view toggle bar */}
+              {/* Sticky filter + column header bar */}
               <div className="sticky top-0 z-10 bg-background shrink-0">
                 <FilterBar
                   search={search}
@@ -289,58 +351,97 @@ export function TasksPage() {
                   onClear={clearFilters}
                   resultCount={filteredTasks.length}
                   totalCount={tasks.length}
-                />
-
-                {/* Column headers (list only) + view toggle */}
-                <div className="bg-background border-b px-4 py-2 flex items-center justify-between gap-2">
-                  {viewMode === "list" ? (
-                    <div className={cn(
-                      "flex-1 grid items-center gap-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide",
-                      TASK_GRID
-                    )}>
-                      <span className="text-center">Pri</span>
-                      <span>Title</span>
-                      <span>Status</span>
-                      <span className="hidden md:block">Deadline</span>
-                      <span className="hidden lg:block text-right">Assignees</span>
-                      <span />
-                    </div>
-                  ) : (
-                    <span className="flex-1 text-xs text-muted-foreground">
-                      {filteredTasks.length !== tasks.length
-                        ? `${filteredTasks.length} of ${tasks.length} tasks`
-                        : `${tasks.length} tasks`}
-                    </span>
-                  )}
-
-                  {/* View toggle */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {(["list", "grid", "kanban"] as ViewMode[]).map((mode) => {
-                      const Icon = mode === "list" ? List : mode === "grid" ? LayoutGrid : LayoutDashboard
-                      return (
+                  trailing={
+                    <>
+                      {(["list", "grid", "kanban", "calendar"] as ViewMode[]).map((mode) => {
+                        const Icon = mode === "list" ? List : mode === "grid" ? LayoutGrid : mode === "kanban" ? LayoutDashboard : CalendarDays
+                        return (
+                          <button
+                            key={mode}
+                            onClick={() => { setViewMode(mode); exitBulkMode() }}
+                            aria-label={`${mode} view`}
+                            className={cn(
+                              "h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                              viewMode === mode
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:bg-muted"
+                            )}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </button>
+                        )
+                      })}
+                      {(viewMode === "list" || viewMode === "grid") && (
                         <button
-                          key={mode}
-                          onClick={() => setViewMode(mode)}
-                          aria-label={`${mode} view`}
+                          onClick={() => { if (bulkMode) exitBulkMode(); else setBulkMode(true) }}
+                          aria-label="Select mode"
                           className={cn(
-                            "h-7 w-7 flex items-center justify-center rounded-md transition-colors",
-                            viewMode === mode
+                            "h-7 w-7 flex items-center justify-center rounded-md transition-colors ml-1",
+                            bulkMode
                               ? "bg-primary text-primary-foreground"
                               : "text-muted-foreground hover:bg-muted"
                           )}
+                          title="Select tasks for bulk actions"
                         >
-                          <Icon className="h-4 w-4" />
+                          <CheckSquare className="h-4 w-4" />
                         </button>
-                      )
-                    })}
+                      )}
+                    </>
+                  }
+                />
+
+                {/* Column headers — list view only, full-width so grid aligns with cards */}
+                {viewMode === "list" && (
+                  <div className="bg-background border-b px-7 py-1.5">
+                    <div className={cn(
+                      "grid items-center gap-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide",
+                      TASK_GRID
+                    )}>
+                      <button
+                        onClick={() => toggleSort("priority")}
+                        className={cn("flex items-center justify-center gap-0.5 hover:text-foreground transition-colors", sortBy === "priority" && "text-foreground")}
+                      >
+                        Pri
+                        {sortBy === "priority" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                      <button
+                        onClick={() => toggleSort("title")}
+                        className={cn("flex items-center gap-0.5 hover:text-foreground transition-colors", sortBy === "title" && "text-foreground")}
+                      >
+                        Title
+                        {sortBy === "title" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                      <button
+                        onClick={() => toggleSort("status")}
+                        className={cn("flex items-center gap-0.5 hover:text-foreground transition-colors", sortBy === "status" && "text-foreground")}
+                      >
+                        Status
+                        {sortBy === "status" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                      <button
+                        onClick={() => toggleSort("deadline")}
+                        className={cn("hidden md:flex items-center gap-0.5 hover:text-foreground transition-colors", sortBy === "deadline" && "text-foreground")}
+                      >
+                        Deadline
+                        {sortBy === "deadline" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                      <span className="hidden lg:block text-right">Assignees</span>
+                      <span />
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Content */}
               {viewMode === "kanban" ? (
                 <KanbanBoard
-                  tasks={filteredTasks}
+                  tasks={sortedTasks}
+                  selectedId={selectedId}
+                  onTaskClick={handleTaskClick}
+                />
+              ) : viewMode === "calendar" ? (
+                <CalendarView
+                  tasks={sortedTasks}
                   selectedId={selectedId}
                   onTaskClick={handleTaskClick}
                 />
@@ -355,24 +456,50 @@ export function TasksPage() {
                     ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-2"
                     : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
                 )}>
-                  {filteredTasks.map((task) => (
-                    <TaskGridCard
-                      key={task.id}
-                      {...task}
-                      isSelected={selectedId === task.id}
-                      onTaskClick={handleTaskClick}
-                    />
+                  {sortedTasks.map((task) => (
+                    <div key={task.id} className="relative">
+                      <TaskGridCard
+                        {...task}
+                        isSelected={bulkMode ? bulkSelected.has(task.id) : selectedId === task.id}
+                        onTaskClick={bulkMode ? () => toggleBulkSelect(task.id) : handleTaskClick}
+                      />
+                      {bulkMode && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleBulkSelect(task.id) }}
+                          className={cn(
+                            "absolute top-2 right-2 h-5 w-5 rounded border-2 bg-background flex items-center justify-center transition-colors",
+                            bulkSelected.has(task.id) ? "bg-primary border-primary text-primary-foreground" : "border-input"
+                          )}
+                        >
+                          {bulkSelected.has(task.id) && <Check className="h-3 w-3" />}
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               ) : (
                 <div className="p-3 space-y-1">
-                  {filteredTasks.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      {...task}
-                      isSelected={selectedId === task.id}
-                      onTaskClick={handleTaskClick}
-                    />
+                  {sortedTasks.map((task) => (
+                    <div key={task.id} className="relative flex items-center">
+                      {bulkMode && (
+                        <button
+                          onClick={() => toggleBulkSelect(task.id)}
+                          className={cn(
+                            "absolute left-2 top-1/2 -translate-y-1/2 z-10 h-4 w-4 rounded border-2 bg-background flex items-center justify-center transition-colors",
+                            bulkSelected.has(task.id) ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground"
+                          )}
+                        >
+                          {bulkSelected.has(task.id) && <Check className="h-2.5 w-2.5" />}
+                        </button>
+                      )}
+                      <div className={cn("flex-1", bulkMode && "pl-8")}>
+                        <TaskCard
+                          {...task}
+                          isSelected={!bulkMode && selectedId === task.id}
+                          onTaskClick={bulkMode ? () => toggleBulkSelect(task.id) : handleTaskClick}
+                        />
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -417,6 +544,17 @@ export function TasksPage() {
           </div>
         )}
       </div>
+
+      {/* Bulk action bar */}
+      {bulkMode && bulkSelected.size > 0 && (
+        <BulkActionBar
+          count={bulkSelected.size}
+          onStatusChange={handleBulkStatusChange}
+          onPriorityChange={handleBulkPriorityChange}
+          onDelete={handleBulkDelete}
+          onClear={exitBulkMode}
+        />
+      )}
 
       <CreateTaskForm
         isOpen={isCreateOpen}

@@ -4,6 +4,7 @@ import { DeadlineIndicator } from "./DeadlineIndicator"
 import { UserAvatar } from "./UserAvatar"
 import type { TaskStatus } from "./StatusBadge"
 import type { Assignee } from "./TaskCard"
+import { MessageSquare, Paperclip } from "lucide-react"
 
 const priorityBorder: Record<Priority, string> = {
   low:    "border-l-emerald-500",
@@ -28,6 +29,8 @@ export interface KanbanTask {
   priority: Priority
   deadline: Date
   assignedTo: Assignee[]
+  comment_count?: number
+  attachment_count?: number
 }
 
 interface KanbanBoardProps {
@@ -69,6 +72,20 @@ function KanbanCard({
           )}
         </div>
       </div>
+      {((task.comment_count ?? 0) > 0 || (task.attachment_count ?? 0) > 0) && (
+        <div className="flex items-center gap-2">
+          {(task.comment_count ?? 0) > 0 && (
+            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
+              <MessageSquare className="h-3 w-3" />{task.comment_count}
+            </span>
+          )}
+          {(task.attachment_count ?? 0) > 0 && (
+            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
+              <Paperclip className="h-3 w-3" />{task.attachment_count}
+            </span>
+          )}
+        </div>
+      )}
     </button>
   )
 }

@@ -19,6 +19,8 @@ export interface Task {
   progress_percentage: number
   tags: string[]
   org_id: string
+  comment_count: number
+  attachment_count: number
 }
 
 export interface CreateTaskPayload {
@@ -144,6 +146,7 @@ export interface Reminder {
   created_at: string
   completed_at: string | null
   reminded: boolean
+  recurrence: "daily" | "weekly" | "monthly" | null
 }
 
 export interface CreateReminderPayload {
@@ -151,6 +154,7 @@ export interface CreateReminderPayload {
   description?: string
   category?: string
   remind_at?: string | null
+  recurrence?: string | null
 }
 
 export interface UpdateReminderPayload {
@@ -159,6 +163,7 @@ export interface UpdateReminderPayload {
   category?: string
   remind_at?: string | null
   status?: string
+  recurrence?: string | null
 }
 
 export const remindersApi = {
@@ -166,6 +171,52 @@ export const remindersApi = {
   create: (data: CreateReminderPayload)                 => request<Reminder>("/reminders", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: UpdateReminderPayload)     => request<Reminder>(`/reminders/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   delete: (id: string)                                  => request<void>(`/reminders/${id}`, { method: "DELETE" }),
+}
+
+export interface Comment {
+  id: string
+  task_id: string
+  text: string
+  created_by: Assignee
+  created_at: string
+}
+
+export interface Attachment {
+  key: string
+  name: string
+  size: number
+  content_type: string
+  url: string
+  uploaded_by: { id: string; name: string }
+  uploaded_at: string
+}
+
+export const commentsApi = {
+  list:   (taskId: string)                       => request<Comment[]>(`/tasks/${taskId}/comments`),
+  create: (taskId: string, text: string)         => request<Comment>(`/tasks/${taskId}/comments`, { method: "POST", body: JSON.stringify({ text }) }),
+  delete: (taskId: string, commentId: string)    => request<void>(`/tasks/${taskId}/comments/${commentId}`, { method: "DELETE" }),
+}
+
+export const attachmentsApi = {
+  list:   (taskId: string)                       => request<Attachment[]>(`/tasks/${taskId}/attachments`),
+  delete: (taskId: string, key: string)          => request<void>(`/tasks/${taskId}/attachments/${encodeURIComponent(key)}`, { method: "DELETE" }),
+  upload: (taskId: string, file: File): Promise<Attachment> => {
+    const token = localStorage.getItem("auth_token")
+    const form = new FormData()
+    form.append("file", file)
+    const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8001/api"
+    return fetch(`${BASE_URL}/tasks/${taskId}/attachments`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    }).then(async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error((err as { detail?: string }).detail ?? `HTTP ${res.status}`)
+      }
+      return res.json()
+    })
+  },
 }
 
 export const orgApi = {

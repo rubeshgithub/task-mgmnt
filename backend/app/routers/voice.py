@@ -18,7 +18,7 @@ from jose import jwt, JWTError
 from pydantic import BaseModel
 from typing import Optional
 
-from app.database import users_collection, tasks_collection, orgs_collection
+from app.database import users_collection, tasks_collection, orgs_collection, reminders_collection
 from app.auth import verify_password, hash_password
 from app.models import Priority
 from app.services.notifications import notify_task_assigned, notify_task_completed
@@ -62,6 +62,20 @@ def _verify_retell(request: Request):
     key = request.headers.get("x-retell-api-key", "")
     if key != RETELL_API_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized")
+
+
+def _parse_remind_at(raw: str) -> datetime | None:
+    """Parse ISO datetime string for remind_at. Falls back to date-only at 09:00 UTC."""
+    raw = raw.strip().rstrip("Z")
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    parsed = _parse_deadline(raw)
+    if parsed:
+        return parsed.replace(hour=9, minute=0, second=0)
+    return None
 
 
 def _parse_deadline(raw: str) -> datetime | None:
@@ -418,3 +432,167 @@ async def voice_find_member(args: FindMemberArgs, request: Request):
     if len(matches) == 1:
         return {"result": f"Found {matches[0]}."}
     return {"result": f"I found multiple matches: {', '.join(matches)}. Which one did you mean?"}
+
+
+# ── Tool: create_reminder ─────────────────────────────────────────────────────
+
+class CreateReminderArgs(BaseModel):
+    voice_token: str
+    title: str
+    description: Optional[str] = ""
+    remind_at: Optional[str] = None   # ISO datetime e.g. "2026-06-10T15:00:00"
+    category: Optional[str] = "personal"
+    recurrence: Optional[str] = None  # "daily", "weekly", "monthly"
+
+
+@router.post("/create-reminder")
+async def voice_create_reminder(args: CreateReminderArgs, request: Request):
+    _verify_retell(request)
+    payload = _decode_voice_token(args.voice_token)
+    user_id = payload["sub"]
+
+    remind_at = None
+    if args.remind_at:
+        remind_at = _parse_remind_at(args.remind_at)
+        if not remind_at:
+            return {"result": f"I couldn't understand the time '{args.remind_at}'. Could you say it again, like 'June 15th at 3pm'?"}
+
+    category = args.category if args.category in {"personal", "work", "health", "other"} else "personal"
+    recurrence = args.recurrence if args.recurrence in {"daily", "weekly", "monthly"} else None
+
+    user_doc = await users_collection.find_one({"_id": ObjectId(user_id)})
+    if not user_doc:
+        return {"result": "Session error. Please call back and verify again."}
+
+    doc = {
+        "title": args.title.strip(),
+        "description": (args.description or "").strip(),
+        "category": category,
+        "status": "pending",
+        "remind_at": remind_at,
+        "recurrence": recurrence,
+        "created_by": {"id": user_id, "name": user_doc["name"], "email": user_doc["email"]},
+        "created_at": datetime.now(timezone.utc),
+        "completed_at": None,
+        "reminded": False,
+    }
+    await reminders_collection.insert_one(doc)
+
+    when = f" for {remind_at.strftime('%B %d at %I:%M %p')} UTC" if remind_at else ""
+    recur = f", repeating {recurrence}" if recurrence else ""
+    return {"result": f"Done. Reminder '{args.title}' created{when}{recur}. Anything else?"}
+
+
+# ── Tool: list_reminders ──────────────────────────────────────────────────────
+
+class ListRemindersArgs(BaseModel):
+    voice_token: str
+
+
+@router.post("/list-reminders")
+async def voice_list_reminders(args: ListRemindersArgs, request: Request):
+    _verify_retell(request)
+    payload = _decode_voice_token(args.voice_token)
+    user_id = payload["sub"]
+
+    docs = await reminders_collection.find(
+        {"created_by.id": user_id, "status": "pending"}
+    ).sort("remind_at", 1).to_list(length=10)
+
+    if not docs:
+        return {"result": "You have no pending reminders."}
+
+    lines = []
+    for d in docs:
+        when = d["remind_at"].strftime("%B %d at %I:%M %p") if d.get("remind_at") else "no time set"
+        recur = f", repeating {d['recurrence']}" if d.get("recurrence") else ""
+        lines.append(f"'{d['title']}' — {when}{recur}")
+
+    summary = f"You have {len(docs)} pending reminder{'s' if len(docs) > 1 else ''}. " + ". ".join(lines[:3])
+    if len(docs) > 3:
+        summary += f". Plus {len(docs) - 3} more."
+    return {"result": summary}
+
+
+# ── Tool: complete_reminder ───────────────────────────────────────────────────
+
+class CompleteReminderArgs(BaseModel):
+    voice_token: str
+    reminder_title: str   # partial match
+
+
+@router.post("/complete-reminder")
+async def voice_complete_reminder(args: CompleteReminderArgs, request: Request):
+    _verify_retell(request)
+    payload = _decode_voice_token(args.voice_token)
+    user_id = payload["sub"]
+
+    pattern = re.compile(re.escape(args.reminder_title.strip()), re.IGNORECASE)
+    doc = None
+    async for candidate in reminders_collection.find({"created_by.id": user_id, "status": "pending"}):
+        if pattern.search(candidate.get("title", "")):
+            doc = candidate
+            break
+
+    if not doc:
+        return {"result": f"I couldn't find a pending reminder matching '{args.reminder_title}'. Could you say the name again?"}
+
+    await reminders_collection.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"status": "completed", "completed_at": datetime.now(timezone.utc)}},
+    )
+    return {"result": f"Done. '{doc['title']}' marked as completed."}
+
+
+# ── Tool: update_reminder ─────────────────────────────────────────────────────
+
+class UpdateReminderArgs(BaseModel):
+    voice_token: str
+    reminder_title: str             # partial match to find it
+    new_title: Optional[str] = None
+    remind_at: Optional[str] = None  # ISO datetime
+    recurrence: Optional[str] = None  # "daily"|"weekly"|"monthly"|"none" to remove
+
+
+@router.post("/update-reminder")
+async def voice_update_reminder(args: UpdateReminderArgs, request: Request):
+    _verify_retell(request)
+    payload = _decode_voice_token(args.voice_token)
+    user_id = payload["sub"]
+
+    updates: dict = {}
+
+    if args.new_title and args.new_title.strip():
+        updates["title"] = args.new_title.strip()
+
+    if args.remind_at:
+        parsed = _parse_remind_at(args.remind_at)
+        if not parsed:
+            return {"result": f"I couldn't understand the time '{args.remind_at}'. Please say something like 'June 20th at 2pm'."}
+        updates["remind_at"] = parsed
+        updates["reminded"] = False
+
+    if args.recurrence is not None:
+        updates["recurrence"] = args.recurrence if args.recurrence in {"daily", "weekly", "monthly"} else None
+
+    if not updates:
+        return {"result": "No changes provided. Tell me what to update — the title, time, or recurrence."}
+
+    pattern = re.compile(re.escape(args.reminder_title.strip()), re.IGNORECASE)
+    doc = None
+    async for candidate in reminders_collection.find({"created_by.id": user_id, "status": "pending"}):
+        if pattern.search(candidate.get("title", "")):
+            doc = candidate
+            break
+
+    if not doc:
+        return {"result": f"I couldn't find a pending reminder matching '{args.reminder_title}'. Could you say the name again?"}
+
+    await reminders_collection.update_one({"_id": doc["_id"]}, {"$set": updates})
+
+    changed = []
+    if "title" in updates:      changed.append(f"title to '{updates['title']}'")
+    if "remind_at" in updates:  changed.append(f"time to {updates['remind_at'].strftime('%B %d at %I:%M %p')}")
+    if "recurrence" in updates: changed.append(f"recurrence to {updates['recurrence'] or 'none'}")
+
+    return {"result": f"Updated. '{doc['title']}' — changed {' and '.join(changed)}. Anything else?"}

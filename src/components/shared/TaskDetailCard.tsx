@@ -5,6 +5,8 @@ import { StatusBadge, type TaskStatus } from "./StatusBadge"
 import { PriorityBadge, type Priority } from "./PriorityBadge"
 import { UserAvatar } from "./UserAvatar"
 import { DeadlineIndicator } from "./DeadlineIndicator"
+import { TaskComments } from "./TaskComments"
+import { TaskAttachments } from "./TaskAttachments"
 import { formatDistanceToNow } from "date-fns"
 
 export interface Assignee {
@@ -34,7 +36,7 @@ interface TaskDetailCardProps {
 const STATUS_OPTIONS: TaskStatus[] = ["assigned", "started", "in_progress", "completed"]
 
 export function TaskDetailCard({
-  title, description, status, priority, deadline, assignedTo,
+  id, title, description, status, priority, deadline, assignedTo,
   createdBy, createdAt, progressPercentage, tags,
   onStatusChange, onEdit, onDelete,
 }: TaskDetailCardProps) {
@@ -156,6 +158,12 @@ export function TaskDetailCard({
           </div>
         </>
       )}
+
+      <Separator />
+      <TaskAttachments taskId={id} />
+
+      <Separator />
+      <TaskComments taskId={id} />
     </div>
   )
 }

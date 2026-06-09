@@ -2,6 +2,7 @@
 Background scheduler — runs deadline and overdue checks every hour.
 Flags tasks with `deadline_notified` / `overdue_notified` to avoid duplicate alerts.
 """
+import calendar as _cal
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,22 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone="UTC")
 
 DONE = {"completed", "reviewed"}
+
+
+def _next_occurrence(remind_at: datetime, recurrence: str) -> datetime:
+    if remind_at.tzinfo is None:
+        remind_at = remind_at.replace(tzinfo=timezone.utc)
+    if recurrence == "daily":
+        return remind_at + timedelta(days=1)
+    if recurrence == "weekly":
+        return remind_at + timedelta(weeks=1)
+    if recurrence == "monthly":
+        m = remind_at.month + 1
+        y = remind_at.year + (m - 1) // 12
+        m = ((m - 1) % 12) + 1
+        max_day = _cal.monthrange(y, m)[1]
+        return remind_at.replace(year=y, month=m, day=min(remind_at.day, max_day))
+    return remind_at
 
 
 async def _check_deadlines():
@@ -90,7 +107,15 @@ async def _check_reminders():
                 )
             except Exception as e:
                 logger.error("Reminder notification failed for %s: %s", reminder["title"], e)
-        await reminders_collection.update_one({"_id": reminder["_id"]}, {"$set": {"reminded": True}})
+        recurrence = reminder.get("recurrence")
+        if recurrence in ("daily", "weekly", "monthly") and reminder.get("remind_at"):
+            next_dt = _next_occurrence(reminder["remind_at"], recurrence)
+            await reminders_collection.update_one(
+                {"_id": reminder["_id"]},
+                {"$set": {"remind_at": next_dt, "reminded": False}},
+            )
+        else:
+            await reminders_collection.update_one({"_id": reminder["_id"]}, {"$set": {"reminded": True}})
         logger.info("Reminder notification sent: %s", reminder["title"])
 
 

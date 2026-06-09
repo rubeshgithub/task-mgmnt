@@ -3,7 +3,7 @@ import { PriorityBadge, type Priority } from "./PriorityBadge"
 import { UserAvatar } from "./UserAvatar"
 import { DeadlineIndicator } from "./DeadlineIndicator"
 import { cn } from "@/lib/utils"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, MessageSquare, Paperclip } from "lucide-react"
 
 export interface Assignee {
   id: string
@@ -19,6 +19,8 @@ interface TaskCardProps {
   priority: Priority
   deadline: Date
   assignedTo: Assignee[]
+  comment_count?: number
+  attachment_count?: number
   onTaskClick: (taskId: string) => void
   isSelected?: boolean
   className?: string
@@ -30,6 +32,7 @@ export const TASK_GRID =
 
 export function TaskCard({
   id, title, status, priority, deadline, assignedTo,
+  comment_count = 0, attachment_count = 0,
   onTaskClick, isSelected, className,
 }: TaskCardProps) {
   return (
@@ -61,15 +64,30 @@ export function TaskCard({
       </div>
 
       {/* Assignee avatars — hidden below lg */}
-      <div className="hidden lg:flex -space-x-1.5 justify-end">
-        {assignedTo.slice(0, 3).map((a) => (
-          <UserAvatar key={a.id} name={a.name} email={a.email} avatarUrl={a.avatarUrl} size="xs" />
-        ))}
-        {assignedTo.length > 3 && (
-          <div className="h-6 w-6 rounded-full bg-muted border-2 border-background flex items-center justify-center text-xs font-bold">
-            +{assignedTo.length - 3}
-          </div>
-        )}
+      <div className="hidden lg:flex items-center gap-2">
+        <div className="flex -space-x-1.5">
+          {assignedTo.slice(0, 3).map((a) => (
+            <UserAvatar key={a.id} name={a.name} email={a.email} avatarUrl={a.avatarUrl} size="xs" />
+          ))}
+          {assignedTo.length > 3 && (
+            <div className="h-6 w-6 rounded-full bg-muted border-2 border-background flex items-center justify-center text-xs font-bold">
+              +{assignedTo.length - 3}
+            </div>
+          )}
+        </div>
+        {/* Counts */}
+        <div className="flex items-center gap-1.5 ml-auto">
+          {comment_count > 0 && (
+            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
+              <MessageSquare className="h-3 w-3" />{comment_count}
+            </span>
+          )}
+          {attachment_count > 0 && (
+            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
+              <Paperclip className="h-3 w-3" />{attachment_count}
+            </span>
+          )}
+        </div>
       </div>
 
       <ChevronRight className="h-4 w-4 text-muted-foreground" />

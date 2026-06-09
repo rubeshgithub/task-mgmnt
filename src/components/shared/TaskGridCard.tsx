@@ -3,7 +3,7 @@ import { PriorityBadge, type Priority } from "./PriorityBadge"
 import { UserAvatar } from "./UserAvatar"
 import { DeadlineIndicator } from "./DeadlineIndicator"
 import { cn } from "@/lib/utils"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, MessageSquare, Paperclip } from "lucide-react"
 import type { Assignee } from "./TaskCard"
 
 const priorityBorder: Record<Priority, string> = {
@@ -21,6 +21,8 @@ interface TaskGridCardProps {
   priority: Priority
   deadline: Date
   assignedTo: Assignee[]
+  comment_count?: number
+  attachment_count?: number
   onTaskClick: (taskId: string) => void
   isSelected?: boolean
   className?: string
@@ -28,6 +30,7 @@ interface TaskGridCardProps {
 
 export function TaskGridCard({
   id, title, description, status, priority, deadline, assignedTo,
+  comment_count = 0, attachment_count = 0,
   onTaskClick, isSelected, className,
 }: TaskGridCardProps) {
   return (
@@ -73,6 +76,22 @@ export function TaskGridCard({
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground ml-0.5" />
         </div>
       </div>
+
+      {/* Counts */}
+      {(comment_count > 0 || attachment_count > 0) && (
+        <div className="flex items-center gap-2 pt-0.5">
+          {comment_count > 0 && (
+            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
+              <MessageSquare className="h-3 w-3" />{comment_count}
+            </span>
+          )}
+          {attachment_count > 0 && (
+            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
+              <Paperclip className="h-3 w-3" />{attachment_count}
+            </span>
+          )}
+        </div>
+      )}
     </button>
   )
 }

@@ -10,17 +10,21 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/context/AuthContext"
 import { useNavigate } from "@tanstack/react-router"
 import { useTheme } from "@/hooks/use-theme"
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner"
+import { NotificationBell } from "@/components/shared/NotificationBell"
 import { cn } from "@/lib/utils"
 import {
   Plus, Sun, Moon, LogOut, Settings, CheckCircle2, Circle,
-  Clock, Pencil, X, Bell, BellOff,
+  Clock, Pencil, X, Bell, BellOff, Repeat, AlarmClock,
 } from "lucide-react"
-import { format, isPast } from "date-fns"
+import { format, isPast, addHours, addWeeks, setHours, setMinutes, addDays } from "date-fns"
 
 // ── Category config ───────────────────────────────────────────────────────────
 
@@ -29,6 +33,13 @@ const CATEGORIES = [
   { value: "work",     label: "Work",     color: "bg-blue-100   text-blue-700   dark:bg-blue-900/40   dark:text-blue-300"   },
   { value: "health",   label: "Health",   color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
   { value: "other",    label: "Other",    color: "bg-slate-100  text-slate-600  dark:bg-slate-800     dark:text-slate-300"  },
+]
+
+const RECURRENCES = [
+  { value: "none",    label: "No repeat" },
+  { value: "daily",   label: "Daily" },
+  { value: "weekly",  label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
 ]
 
 function CategoryBadge({ category }: { category: string }) {
@@ -40,6 +51,27 @@ function CategoryBadge({ category }: { category: string }) {
   )
 }
 
+function RecurrenceBadge({ recurrence }: { recurrence: string }) {
+  const label = recurrence === "daily" ? "Daily" : recurrence === "weekly" ? "Weekly" : "Monthly"
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+      <Repeat className="h-2.5 w-2.5" />
+      {label}
+    </span>
+  )
+}
+
+// ── Snooze helpers ────────────────────────────────────────────────────────────
+
+function tomorrowAt9am(): Date {
+  const d = addDays(new Date(), 1)
+  return setMinutes(setHours(d, 9), 0)
+}
+
+function nextWeekSameTime(): Date {
+  return addWeeks(new Date(), 1)
+}
+
 // ── Reminder item ─────────────────────────────────────────────────────────────
 
 interface ReminderItemProps {
@@ -48,12 +80,12 @@ interface ReminderItemProps {
   onCancel: () => void
   onDelete: () => void
   onEdit: () => void
+  onSnooze: (until: Date) => void
 }
 
-function ReminderItem({ reminder, onToggle, onCancel, onDelete, onEdit }: ReminderItemProps) {
+function ReminderItem({ reminder, onToggle, onCancel, onDelete, onEdit, onSnooze }: ReminderItemProps) {
   const done = reminder.status !== "pending"
-  const hasDate = !!reminder.remind_at
-  const dateObj = hasDate ? new Date(reminder.remind_at!) : null
+  const dateObj = reminder.remind_at ? new Date(reminder.remind_at) : null
   const overdue = dateObj && isPast(dateObj) && reminder.status === "pending"
 
   return (
@@ -84,6 +116,7 @@ function ReminderItem({ reminder, onToggle, onCancel, onDelete, onEdit }: Remind
         )}
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <CategoryBadge category={reminder.category} />
+          {reminder.recurrence && <RecurrenceBadge recurrence={reminder.recurrence} />}
           {dateObj && (
             <span className={cn(
               "inline-flex items-center gap-1 text-xs",
@@ -104,16 +137,53 @@ function ReminderItem({ reminder, onToggle, onCancel, onDelete, onEdit }: Remind
       {/* Actions */}
       <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
         {!done && (
-          <button onClick={onEdit} className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground" aria-label="Edit">
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+          <>
+            {/* Snooze */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground"
+                  aria-label="Snooze"
+                >
+                  <AlarmClock className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="text-xs">
+                <DropdownMenuItem onClick={() => onSnooze(addHours(new Date(), 1))}>
+                  In 1 hour
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onSnooze(tomorrowAt9am())}>
+                  Tomorrow morning (9 AM)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onSnooze(nextWeekSameTime())}>
+                  Next week
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <button
+              onClick={onEdit}
+              className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground"
+              aria-label="Edit"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </>
         )}
         {reminder.status === "pending" ? (
-          <button onClick={onCancel} className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground" aria-label="Cancel">
+          <button
+            onClick={onCancel}
+            className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground"
+            aria-label="Cancel"
+          >
             <X className="h-3.5 w-3.5" />
           </button>
         ) : (
-          <button onClick={onDelete} className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive" aria-label="Delete">
+          <button
+            onClick={onDelete}
+            className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+            aria-label="Delete"
+          >
             <X className="h-3.5 w-3.5" />
           </button>
         )}
@@ -127,7 +197,13 @@ function ReminderItem({ reminder, onToggle, onCancel, onDelete, onEdit }: Remind
 interface EditDialogProps {
   reminder: Reminder | null
   onClose: () => void
-  onSave: (data: { title: string; description: string; category: string; remind_at: string | null }) => Promise<void>
+  onSave: (data: {
+    title: string
+    description: string
+    category: string
+    remind_at: string | null
+    recurrence: string | null
+  }) => Promise<void>
   isLoading: boolean
 }
 
@@ -138,6 +214,7 @@ function EditDialog({ reminder, onClose, onSave, isLoading }: EditDialogProps) {
   const [remindAt, setRemindAt] = useState(
     reminder?.remind_at ? new Date(reminder.remind_at).toISOString().slice(0, 16) : ""
   )
+  const [recurrence, setRecurrence] = useState(reminder?.recurrence ?? "none")
 
   const handleSave = async () => {
     if (!title.trim()) return
@@ -146,6 +223,7 @@ function EditDialog({ reminder, onClose, onSave, isLoading }: EditDialogProps) {
       description: description.trim(),
       category,
       remind_at: remindAt ? new Date(remindAt).toISOString() : null,
+      recurrence: recurrence === "none" ? null : recurrence,
     })
   }
 
@@ -190,6 +268,17 @@ function EditDialog({ reminder, onClose, onSave, isLoading }: EditDialogProps) {
               />
             </div>
           </div>
+          {remindAt && (
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Repeat</label>
+              <Select value={recurrence} onValueChange={setRecurrence} disabled={isLoading}>
+                <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {RECURRENCES.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={isLoading}>Cancel</Button>
@@ -208,6 +297,8 @@ export function RemindersPage() {
   const [quickTitle, setQuickTitle] = useState("")
   const [quickCategory, setQuickCategory] = useState("personal")
   const [quickDate, setQuickDate] = useState("")
+  const [quickRecurrence, setQuickRecurrence] = useState("none")
+  const [showDatePicker, setShowDatePicker] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [showDone, setShowDone] = useState(false)
   const [editTarget, setEditTarget] = useState<Reminder | null>(null)
@@ -230,6 +321,7 @@ export function RemindersPage() {
       qc.invalidateQueries({ queryKey: ["reminders"] })
       setQuickTitle("")
       setQuickDate("")
+      setQuickRecurrence("none")
       inputRef.current?.focus()
     },
     onError: (e: Error) => toast({ title: "Failed to add reminder", description: e.message, variant: "destructive" }),
@@ -257,29 +349,26 @@ export function RemindersPage() {
       title: quickTitle.trim(),
       category: quickCategory,
       remind_at: quickDate ? new Date(quickDate).toISOString() : null,
+      recurrence: quickDate && quickRecurrence !== "none" ? quickRecurrence : null,
     })
   }
 
   const handleToggle = (r: Reminder) => {
-    if (r.status === "completed") {
-      updateMutation.mutate({ id: r.id, data: { status: "pending" } })
-    } else {
-      updateMutation.mutate({ id: r.id, data: { status: "completed" } })
-    }
+    updateMutation.mutate({ id: r.id, data: { status: r.status === "completed" ? "pending" : "completed" } })
   }
 
-  // Sort: pending first, then by created_at desc
+  const handleSnooze = (r: Reminder, until: Date) => {
+    updateMutation.mutate({ id: r.id, data: { remind_at: until.toISOString() } })
+    toast({ title: "Snoozed", description: `Reminder rescheduled for ${format(until, "MMM d, h:mm a")}` })
+  }
+
   const sorted = [...reminders].sort((a, b) => {
     if (a.status === "pending" && b.status !== "pending") return -1
     if (a.status !== "pending" && b.status === "pending") return 1
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   })
 
-  const filtered = sorted.filter((r) => {
-    if (categoryFilter !== "all" && r.category !== categoryFilter) return false
-    return true
-  })
-
+  const filtered = sorted.filter((r) => categoryFilter === "all" || r.category === categoryFilter)
   const pending = filtered.filter((r) => r.status === "pending")
   const done = filtered.filter((r) => r.status !== "pending")
 
@@ -293,7 +382,6 @@ export function RemindersPage() {
           <div>
             <h1 className="text-lg font-bold leading-tight">{user?.org_name || "Task Management"}</h1>
           </div>
-          {/* Nav tabs */}
           <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
             <button
               onClick={() => navigate({ to: "/tasks" })}
@@ -301,59 +389,123 @@ export function RemindersPage() {
             >
               Tasks
             </button>
-            <button
-              className="px-3 py-1 text-xs font-medium rounded-md bg-background text-foreground shadow-sm"
-            >
+            <button className="px-3 py-1 text-xs font-medium rounded-md bg-background text-foreground shadow-sm">
               Reminders
             </button>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {user && <span className="hidden sm:block text-xs text-muted-foreground">{user.name}</span>}
-          <button onClick={toggleTheme} className="h-8 w-8 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors" aria-label="Toggle theme">
+          <NotificationBell />
+          <button
+            onClick={toggleTheme}
+            className="h-8 w-8 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors"
+            aria-label="Toggle theme"
+          >
             {theme === "dark" ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
           </button>
-          <button onClick={() => navigate({ to: "/settings" })} className="h-8 w-8 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors" aria-label="Settings">
+          <button
+            onClick={() => navigate({ to: "/settings" })}
+            className="h-8 w-8 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors"
+            aria-label="Settings"
+          >
             <Settings className="h-4 w-4 text-muted-foreground" />
           </button>
-          <button onClick={() => { logout(); navigate({ to: "/login" }) }} className="h-8 w-8 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors" aria-label="Sign out">
+          <button
+            onClick={() => { logout(); navigate({ to: "/login" }) }}
+            className="h-8 w-8 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors"
+            aria-label="Sign out"
+          >
             <LogOut className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
       </header>
 
       {/* Quick-add */}
-      <div className="shrink-0 bg-card border-b px-4 py-3">
-        <div className="flex gap-2 flex-wrap sm:flex-nowrap">
-          <Input
-            ref={inputRef}
-            value={quickTitle}
-            onChange={(e) => setQuickTitle(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleQuickAdd() }}
-            placeholder="What do you want to remember? Press Enter to add…"
-            className="flex-1 min-w-0"
-            disabled={createMutation.isPending}
-          />
+      <div className="shrink-0 bg-card border-b px-4 py-3 space-y-2">
+        {/* Row 1: text input */}
+        <Input
+          ref={inputRef}
+          value={quickTitle}
+          onChange={(e) => setQuickTitle(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleQuickAdd() }}
+          placeholder="What do you want to remember?  Press Enter to add…"
+          disabled={createMutation.isPending}
+        />
+
+        {/* Row 2: category + reminder toggle + add */}
+        <div className="flex items-center gap-2">
           <Select value={quickCategory} onValueChange={setQuickCategory}>
-            <SelectTrigger className="w-32 shrink-0">
+            <SelectTrigger className="w-28 h-8 text-xs shrink-0">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Input
-            type="datetime-local"
-            value={quickDate}
-            onChange={(e) => setQuickDate(e.target.value)}
-            className="w-44 shrink-0 text-xs"
-            disabled={createMutation.isPending}
-          />
-          <Button onClick={handleQuickAdd} disabled={createMutation.isPending || !quickTitle.trim()} className="shrink-0">
+
+          <button
+            type="button"
+            onClick={() => setShowDatePicker((v) => !v)}
+            className={cn(
+              "h-8 flex items-center gap-1.5 px-3 text-xs rounded-md border transition-colors whitespace-nowrap",
+              quickDate
+                ? "border-primary text-primary bg-primary/5"
+                : "border-input text-muted-foreground hover:bg-muted"
+            )}
+          >
+            <Clock className="h-3.5 w-3.5 shrink-0" />
+            {quickDate ? format(new Date(quickDate), "MMM d, h:mm a") : "Set reminder"}
+            {quickDate && (
+              <span
+                role="button"
+                onClick={(e) => { e.stopPropagation(); setQuickDate(""); setQuickRecurrence("none"); setShowDatePicker(false) }}
+                className="ml-1 hover:text-destructive"
+              >
+                <X className="h-3 w-3" />
+              </span>
+            )}
+          </button>
+
+          <Button
+            onClick={handleQuickAdd}
+            disabled={createMutation.isPending || !quickTitle.trim()}
+            size="sm"
+            className="ml-auto shrink-0"
+          >
             <Plus className="h-4 w-4 mr-1" />
             Add
           </Button>
         </div>
+
+        {/* Row 3: date/time + repeat — shown when toggled */}
+        {showDatePicker && (
+          <div className="flex items-center gap-2">
+            <Input
+              type="datetime-local"
+              value={quickDate}
+              onChange={(e) => setQuickDate(e.target.value)}
+              className="flex-1 h-8 text-xs"
+              disabled={createMutation.isPending}
+              autoFocus
+            />
+            <Select value={quickRecurrence} onValueChange={setQuickRecurrence} disabled={!quickDate}>
+              <SelectTrigger className="w-28 h-8 text-xs shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RECURRENCES.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <button
+              onClick={() => { setQuickDate(""); setQuickRecurrence("none"); setShowDatePicker(false) }}
+              className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              aria-label="Clear date"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Category filter */}
@@ -378,7 +530,6 @@ export function RemindersPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-4 space-y-2">
 
-          {/* Pending */}
           {pending.length === 0 && done.length === 0 && (
             <div className="py-16 text-center text-sm text-muted-foreground">
               <p className="text-2xl mb-2">🔔</p>
@@ -397,10 +548,10 @@ export function RemindersPage() {
               onCancel={() => updateMutation.mutate({ id: r.id, data: { status: "cancelled" } })}
               onDelete={() => deleteMutation.mutate(r.id)}
               onEdit={() => setEditTarget(r)}
+              onSnooze={(until) => handleSnooze(r, until)}
             />
           ))}
 
-          {/* Done section */}
           {done.length > 0 && (
             <div className="pt-2">
               <button
@@ -418,6 +569,7 @@ export function RemindersPage() {
                   onCancel={() => updateMutation.mutate({ id: r.id, data: { status: "cancelled" } })}
                   onDelete={() => deleteMutation.mutate(r.id)}
                   onEdit={() => setEditTarget(r)}
+                  onSnooze={(until) => handleSnooze(r, until)}
                 />
               ))}
             </div>
@@ -425,8 +577,9 @@ export function RemindersPage() {
         </div>
       </div>
 
-      {/* Edit dialog */}
+      {/* Edit dialog — key forces remount so state resets for each reminder */}
       <EditDialog
+        key={editTarget?.id ?? "none"}
         reminder={editTarget}
         onClose={() => setEditTarget(null)}
         onSave={(data) => updateMutation.mutateAsync({ id: editTarget!.id, data })}

@@ -132,6 +132,8 @@ class Task(BaseModel):
     progress_percentage: int = 0
     tags: list[str] = []
     org_id: str = ""
+    comment_count: int = 0
+    attachment_count: int = 0
 
 
 # ── Reminders ────────────────────────────────────────────────────────────────
@@ -141,6 +143,7 @@ class ReminderCreate(BaseModel):
     description: str = ""
     category: str = "personal"   # personal | work | health | other
     remind_at: Optional[datetime] = None
+    recurrence: Optional[str] = None  # daily | weekly | monthly
 
 
 class ReminderUpdate(BaseModel):
@@ -149,6 +152,7 @@ class ReminderUpdate(BaseModel):
     category: Optional[str] = None
     remind_at: Optional[datetime] = None
     status: Optional[str] = None  # pending | completed | cancelled
+    recurrence: Optional[str] = None  # daily | weekly | monthly | null to clear
 
 
 class ReminderOut(BaseModel):
@@ -161,6 +165,21 @@ class ReminderOut(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
     reminded: bool = False
+    recurrence: Optional[str] = None
+
+
+# ── Comments ─────────────────────────────────────────────────────────────────
+
+class CommentCreate(BaseModel):
+    text: str
+
+
+class CommentOut(BaseModel):
+    id: str
+    task_id: str
+    text: str
+    created_by: Assignee
+    created_at: datetime
 
 
 # ── Invitations ───────────────────────────────────────────────────────────────

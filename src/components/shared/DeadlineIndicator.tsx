@@ -1,4 +1,4 @@
-import { formatDistanceToNow, isPast } from "date-fns"
+import { isPast } from "date-fns"
 import { AlertCircle, Clock, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -8,27 +8,40 @@ interface DeadlineIndicatorProps {
   className?: string
 }
 
+function formatDeadline(date: Date): string {
+  const now = new Date()
+  const isCurrentYear = date.getFullYear() === now.getFullYear()
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(isCurrentYear ? {} : { year: "numeric" }),
+  })
+}
+
 export function DeadlineIndicator({ deadline, completed = false, className }: DeadlineIndicatorProps) {
   const isOverdue = isPast(deadline) && !completed
   const daysUntil = Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+  const dueSoon = !completed && !isOverdue && daysUntil <= 3
 
   return (
-    <div className={cn("flex items-center gap-2 text-sm", className)}>
+    <div className={cn("flex items-center gap-1 text-sm", className)}>
       {completed ? (
-        <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
-          <CheckCircle className="h-4 w-4" />
-          <span>Completed</span>
-        </div>
+        <>
+          <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+          <span className="text-emerald-600 dark:text-emerald-400">{formatDeadline(deadline)}</span>
+        </>
       ) : isOverdue ? (
-        <div className="flex items-center gap-1 text-red-600 dark:text-red-400 font-semibold">
-          <AlertCircle className="h-4 w-4" />
-          <span>Overdue by {Math.abs(daysUntil)} day{Math.abs(daysUntil) !== 1 ? "s" : ""}</span>
-        </div>
+        <>
+          <AlertCircle className="h-3.5 w-3.5 text-rose-500 shrink-0" />
+          <span className="text-rose-600 dark:text-rose-400 font-medium">{formatDeadline(deadline)}</span>
+        </>
       ) : (
-        <div className="flex items-center gap-1 text-muted-foreground">
-          <Clock className="h-4 w-4" />
-          <span>Due {formatDistanceToNow(deadline, { addSuffix: true })}</span>
-        </div>
+        <>
+          <Clock className={cn("h-3.5 w-3.5 shrink-0", dueSoon ? "text-amber-500" : "text-muted-foreground")} />
+          <span className={cn(dueSoon ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground")}>
+            {formatDeadline(deadline)}
+          </span>
+        </>
       )}
     </div>
   )

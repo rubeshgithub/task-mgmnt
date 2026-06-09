@@ -11,6 +11,7 @@ router = APIRouter(prefix="/api/reminders", tags=["reminders"])
 
 VALID_CATEGORIES = {"personal", "work", "health", "other"}
 VALID_STATUSES = {"pending", "completed", "cancelled"}
+VALID_RECURRENCES = {"daily", "weekly", "monthly"}
 
 
 def _doc_to_out(doc: dict) -> ReminderOut:
@@ -24,6 +25,7 @@ def _doc_to_out(doc: dict) -> ReminderOut:
         created_at=doc["created_at"],
         completed_at=doc.get("completed_at"),
         reminded=doc.get("reminded", False),
+        recurrence=doc.get("recurrence"),
     )
 
 
@@ -50,12 +52,14 @@ async def create_reminder(data: ReminderCreate, current_user: dict = Depends(get
     if not data.title.strip():
         raise HTTPException(status_code=400, detail="Title is required")
     category = data.category if data.category in VALID_CATEGORIES else "personal"
+    recurrence = data.recurrence if data.recurrence in VALID_RECURRENCES else None
     doc = {
         "title": data.title.strip(),
         "description": data.description.strip(),
         "category": category,
         "status": "pending",
         "remind_at": data.remind_at,
+        "recurrence": recurrence,
         "created_by": {"id": current_user["id"], "name": current_user["name"], "email": current_user["email"]},
         "created_at": datetime.now(timezone.utc),
         "completed_at": None,
@@ -85,6 +89,8 @@ async def update_reminder(reminder_id: str, data: ReminderUpdate, current_user: 
     if data.remind_at is not None:
         updates["remind_at"] = data.remind_at
         updates["reminded"] = False  # reset so notification fires again if date changed
+    if "recurrence" in data.model_fields_set:
+        updates["recurrence"] = data.recurrence if data.recurrence in VALID_RECURRENCES else None
     if data.status is not None and data.status in VALID_STATUSES:
         updates["status"] = data.status
         if data.status in ("completed", "cancelled"):

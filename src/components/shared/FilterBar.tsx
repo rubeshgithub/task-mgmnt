@@ -38,6 +38,7 @@ interface FilterBarProps {
   onClear: () => void
   resultCount: number
   totalCount: number
+  trailing?: React.ReactNode
 }
 
 interface FilterButtonProps {
@@ -79,6 +80,7 @@ export function FilterBar({
   users,
   onClear,
   resultCount, totalCount,
+  trailing,
 }: FilterBarProps) {
   const hasFilters = search.length > 0 || statusFilter.size > 0 || priorityFilter.size > 0 || assigneeFilter.size > 0
   const isFiltered = hasFilters && resultCount !== totalCount
@@ -155,6 +157,7 @@ export function FilterBar({
           <X className="h-3.5 w-3.5" />
         </button>
       )}
+      {trailing && <div className="flex items-center gap-1 ml-1 pl-2 border-l shrink-0">{trailing}</div>}
     </div>
   )
 }

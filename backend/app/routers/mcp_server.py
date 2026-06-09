@@ -96,6 +96,60 @@ MCP_TOOLS = [
             "required": ["voice_token", "task_title"],
         },
     },
+    {
+        "name": "create_reminder",
+        "description": "Create a personal reminder for the authenticated caller. Resolve relative times like 'tomorrow at 3pm' to an ISO datetime before calling.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "voice_token":  {"type": "string"},
+                "title":        {"type": "string", "description": "Short reminder title"},
+                "description":  {"type": "string", "description": "Optional details"},
+                "remind_at":    {"type": "string", "description": "Reminder datetime as ISO string YYYY-MM-DDTHH:MM:SS (UTC). Resolve relative times before calling."},
+                "category":     {"type": "string", "enum": ["personal", "work", "health", "other"]},
+                "recurrence":   {"type": "string", "enum": ["daily", "weekly", "monthly"], "description": "Repeat frequency — omit for one-off reminders"},
+            },
+            "required": ["voice_token", "title"],
+        },
+    },
+    {
+        "name": "list_reminders",
+        "description": "List the caller's pending reminders, up to 10, sorted by remind_at.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "voice_token": {"type": "string"},
+            },
+            "required": ["voice_token"],
+        },
+    },
+    {
+        "name": "complete_reminder",
+        "description": "Mark a pending reminder as completed, found by partial title match.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "voice_token":      {"type": "string"},
+                "reminder_title":   {"type": "string", "description": "Full or partial title of the reminder to complete"},
+            },
+            "required": ["voice_token", "reminder_title"],
+        },
+    },
+    {
+        "name": "update_reminder",
+        "description": "Update the title, remind_at time, or recurrence of a pending reminder found by partial title match. Only include fields that need to change. Pass recurrence='none' to remove recurrence.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "voice_token":    {"type": "string"},
+                "reminder_title": {"type": "string", "description": "Full or partial title of the reminder to find"},
+                "new_title":      {"type": "string", "description": "Replacement title"},
+                "remind_at":      {"type": "string", "description": "New datetime as ISO string YYYY-MM-DDTHH:MM:SS (UTC)"},
+                "recurrence":     {"type": "string", "description": "New repeat frequency: 'daily', 'weekly', 'monthly', or 'none' to remove"},
+            },
+            "required": ["voice_token", "reminder_title"],
+        },
+    },
 ]
 
 TOOL_ROUTES = {
@@ -105,6 +159,10 @@ TOOL_ROUTES = {
     "list_my_tasks":       "/list-tasks",
     "find_member":         "/find-member",
     "update_task_details": "/update-task-details",
+    "create_reminder":     "/create-reminder",
+    "list_reminders":      "/list-reminders",
+    "complete_reminder":   "/complete-reminder",
+    "update_reminder":     "/update-reminder",
 }
 
 

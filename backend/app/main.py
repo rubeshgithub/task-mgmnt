@@ -6,6 +6,8 @@ from app.routers import organisations
 from app.routers import voice
 from app.routers import mcp_server
 from app.routers import reminders
+from app.routers import comments
+from app.routers import attachments
 from app.scheduler import start_scheduler, stop_scheduler
 
 
@@ -39,6 +41,8 @@ app.include_router(organisations.router)
 app.include_router(voice.router)
 app.include_router(mcp_server.router)
 app.include_router(reminders.router)
+app.include_router(comments.router)
+app.include_router(attachments.router)
 
 
 @app.get("/health")
