@@ -61,7 +61,7 @@ export function TaskComments({ taskId }: { taskId: string }) {
               user?.role === "admin"
             return (
               <div key={c.id} className="flex gap-2 group">
-                <UserAvatar name={c.created_by.name} email={c.created_by.email} size="xs" className="shrink-0 mt-0.5" />
+                <div className="shrink-0 mt-0.5"><UserAvatar name={c.created_by.name} email={c.created_by.email} size="xs" /></div>
                 <div className="flex-1 min-w-0 bg-muted/50 rounded-lg px-3 py-2">
                   <div className="flex items-start justify-between gap-1">
                     <div className="flex items-baseline gap-2 min-w-0">

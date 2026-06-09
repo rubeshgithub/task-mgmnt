@@ -582,7 +582,7 @@ export function RemindersPage() {
         key={editTarget?.id ?? "none"}
         reminder={editTarget}
         onClose={() => setEditTarget(null)}
-        onSave={(data) => updateMutation.mutateAsync({ id: editTarget!.id, data })}
+        onSave={(data) => updateMutation.mutateAsync({ id: editTarget!.id, data }).then(() => {})}
         isLoading={updateMutation.isPending}
       />
     </div>
