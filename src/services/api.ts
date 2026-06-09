@@ -1,4 +1,4 @@
-const BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000/api"
+const BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8001/api"
 
 export interface Assignee {
   id: string
@@ -132,6 +132,40 @@ export const authApi = {
     request<InvitationPreview>(`/auth/invitations/preview/${token}`),
   acceptInvitation: (token: string, email: string, password: string) =>
     request<TokenResponse>(`/auth/invitations/accept/${token}`, { method: "POST", body: JSON.stringify({ email, password }) }),
+}
+
+export interface Reminder {
+  id: string
+  title: string
+  description: string
+  category: string
+  status: "pending" | "completed" | "cancelled"
+  remind_at: string | null
+  created_at: string
+  completed_at: string | null
+  reminded: boolean
+}
+
+export interface CreateReminderPayload {
+  title: string
+  description?: string
+  category?: string
+  remind_at?: string | null
+}
+
+export interface UpdateReminderPayload {
+  title?: string
+  description?: string
+  category?: string
+  remind_at?: string | null
+  status?: string
+}
+
+export const remindersApi = {
+  list:   ()                                            => request<Reminder[]>("/reminders"),
+  create: (data: CreateReminderPayload)                 => request<Reminder>("/reminders", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: UpdateReminderPayload)     => request<Reminder>(`/reminders/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  delete: (id: string)                                  => request<void>(`/reminders/${id}`, { method: "DELETE" }),
 }
 
 export const orgApi = {

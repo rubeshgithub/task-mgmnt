@@ -205,9 +205,19 @@ export function TasksPage() {
     <div className="h-screen flex flex-col overflow-hidden bg-background">
       {/* Header */}
       <header className="bg-card border-b px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-10 shrink-0">
-        <div>
+        <div className="flex items-center gap-4">
           <h1 className="text-lg font-bold leading-tight">{user?.org_name || "Task Management"}</h1>
-          <p className="hidden sm:block text-xs text-muted-foreground">{tasks.length} tasks</p>
+          <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+            <button className="px-3 py-1 text-xs font-medium rounded-md bg-background text-foreground shadow-sm">
+              Tasks
+            </button>
+            <button
+              onClick={() => navigate({ to: "/reminders" })}
+              className="px-3 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Reminders
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {user && (

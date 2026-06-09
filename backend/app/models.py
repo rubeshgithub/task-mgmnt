@@ -134,6 +134,35 @@ class Task(BaseModel):
     org_id: str = ""
 
 
+# ── Reminders ────────────────────────────────────────────────────────────────
+
+class ReminderCreate(BaseModel):
+    title: str
+    description: str = ""
+    category: str = "personal"   # personal | work | health | other
+    remind_at: Optional[datetime] = None
+
+
+class ReminderUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    remind_at: Optional[datetime] = None
+    status: Optional[str] = None  # pending | completed | cancelled
+
+
+class ReminderOut(BaseModel):
+    id: str
+    title: str
+    description: str
+    category: str
+    status: str
+    remind_at: Optional[datetime] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    reminded: bool = False
+
+
 # ── Invitations ───────────────────────────────────────────────────────────────
 
 class InvitationCreate(BaseModel):

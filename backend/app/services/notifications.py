@@ -86,6 +86,31 @@ async def notify_task_completed(
     )
 
 
+# ── Reminder (called by scheduler) ───────────────────────────────────────────
+
+async def notify_reminder(
+    to_email: str,
+    to_phone: str | None,
+    title: str,
+    description: str,
+    app_url: str,
+):
+    body = f"<b>{title}</b>"
+    if description:
+        body += f"<br><br>{description}"
+    await send_task_email(
+        to=to_email,
+        subject=f"Reminder: {title}",
+        heading="You have a reminder",
+        body=body,
+        meta=None,
+        cta_label="View Reminders",
+        cta_url=f"{app_url}/reminders",
+    )
+    if to_phone:
+        await send_sms(to_phone, f"Reminder: {title}")
+
+
 # ── Deadline approaching (called by scheduler) ────────────────────────────────
 
 async def notify_deadline_approaching(

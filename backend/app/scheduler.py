@@ -6,8 +6,8 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from app.database import tasks_collection, users_collection
-from app.services.notifications import notify_deadline_approaching, notify_task_overdue
+from app.database import tasks_collection, users_collection, reminders_collection
+from app.services.notifications import notify_deadline_approaching, notify_task_overdue, notify_reminder
 from bson import ObjectId
 
 logger = logging.getLogger(__name__)
@@ -69,9 +69,35 @@ async def _check_overdue():
         logger.info("Overdue notification sent for task: %s", task["title"])
 
 
+async def _check_reminders():
+    now = datetime.now(timezone.utc)
+    app_url = os.getenv("APP_URL", "http://localhost:5173")
+    cursor = reminders_collection.find({
+        "status": "pending",
+        "remind_at": {"$lte": now, "$ne": None},
+        "reminded": {"$ne": True},
+    })
+    async for reminder in cursor:
+        user = await users_collection.find_one({"_id": ObjectId(reminder["created_by"]["id"])})
+        if user:
+            try:
+                await notify_reminder(
+                    to_email=user["email"],
+                    to_phone=user.get("phone"),
+                    title=reminder["title"],
+                    description=reminder.get("description", ""),
+                    app_url=app_url,
+                )
+            except Exception as e:
+                logger.error("Reminder notification failed for %s: %s", reminder["title"], e)
+        await reminders_collection.update_one({"_id": reminder["_id"]}, {"$set": {"reminded": True}})
+        logger.info("Reminder notification sent: %s", reminder["title"])
+
+
 def start_scheduler():
     scheduler.add_job(_check_deadlines, "interval", hours=1, id="deadline_check", replace_existing=True)
     scheduler.add_job(_check_overdue, "interval", hours=1, id="overdue_check", replace_existing=True)
+    scheduler.add_job(_check_reminders, "interval", minutes=5, id="reminder_check", replace_existing=True)
     scheduler.start()
     logger.info("Scheduler started")
 
