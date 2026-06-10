@@ -17,8 +17,19 @@ BASE = f"https://{_self}/api/voice" if _self else "http://localhost:8000/api/voi
 
 MCP_TOOLS = [
     {
+        "name": "auto_verify",
+        "description": "Silently verify the caller by their phone number. Call this FIRST at the start of every call using {{from_number}}. If verified=True, greet them by name and use the returned voice_token. If verified=False, fall back to asking for email and PIN via verify_user.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "from_number": {"type": "string", "description": "The caller's phone number — use {{from_number}}"},
+            },
+            "required": ["from_number"],
+        },
+    },
+    {
         "name": "verify_user",
-        "description": "Authenticate the caller by email and voice PIN. Must be called first. Returns a voice_token for subsequent calls.",
+        "description": "Authenticate the caller by email and voice PIN. Use this only if auto_verify returned verified=False. Returns a voice_token for subsequent calls.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -164,6 +175,7 @@ MCP_TOOLS = [
 ]
 
 TOOL_ROUTES = {
+    "auto_verify":         "/auto-verify",
     "verify_user":         "/verify-user",
     "create_task":         "/create-task",
     "update_task_status":  "/update-task",
@@ -207,9 +219,9 @@ async def mcp_endpoint(request: Request):
     if method == "tools/call":
         tool_name = params.get("name")
         arguments = dict(params.get("arguments", {}))
-        # Inject call_id from Retell's _meta so verify_user can store the session mapping
+        # Inject call_id from Retell's _meta so verify_user/auto_verify can store the session
         call_id = params.get("_meta", {}).get("call_id", "")
-        if call_id and tool_name == "verify_user":
+        if call_id and tool_name in ("verify_user", "auto_verify"):
             arguments["call_id"] = call_id
         route = TOOL_ROUTES.get(tool_name)
 

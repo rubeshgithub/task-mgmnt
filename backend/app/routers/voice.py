@@ -99,6 +99,64 @@ async def _resolve_member(name: str, org_id: str) -> dict | None:
     return None
 
 
+# ── Shared session helper ────────────────────────────────────────────────────
+
+async def _store_call_session(call_id: str, user_id: str, org_id: str):
+    if not call_id:
+        return
+    await call_sessions_collection.replace_one(
+        {"call_id": call_id},
+        {
+            "call_id": call_id,
+            "user_id": user_id,
+            "org_id": org_id,
+            "created_at": datetime.now(timezone.utc),
+        },
+        upsert=True,
+    )
+
+
+# ── Tool: auto_verify (phone-based, no PIN needed) ────────────────────────────
+
+class AutoVerifyArgs(BaseModel):
+    from_number: str          # Retell injects {{from_number}} automatically
+    call_id: Optional[str] = None   # injected by MCP server from _meta
+
+
+@router.post("/auto-verify")
+async def voice_auto_verify(args: AutoVerifyArgs, request: Request):
+    _verify_retell(request)
+
+    # Normalise number — strip spaces/dashes for flexible matching
+    normalized = re.sub(r"[\s\-]", "", args.from_number.strip())
+    doc = await users_collection.find_one({"phone": normalized})
+    if not doc:
+        return {
+            "result": "unrecognized",
+            "verified": False,
+            "voice_token": None,
+        }
+
+    org_id = str(doc.get("org_id", ""))
+    token = _make_voice_token(str(doc["_id"]), org_id, args.call_id or "")
+    await _store_call_session(args.call_id or "", str(doc["_id"]), org_id)
+
+    org_name = ""
+    if org_id:
+        org = await orgs_collection.find_one({"_id": doc["org_id"]})
+        if org:
+            org_name = org.get("name", "")
+
+    first_name = doc["name"].split()[0]
+    return {
+        "result": f"Welcome back, {first_name}! How can I help you today?",
+        "voice_token": token,
+        "user_name": doc["name"],
+        "org_name": org_name,
+        "verified": True,
+    }
+
+
 # ── Tool: verify_user ─────────────────────────────────────────────────────────
 
 class VerifyUserArgs(BaseModel):
@@ -128,17 +186,7 @@ async def verify_user(args: VerifyUserArgs, request: Request):
             org_name = org.get("name", "")
 
     # Store call_id → user mapping so the post-call webhook can attribute the note
-    if args.call_id:
-        await call_sessions_collection.replace_one(
-            {"call_id": args.call_id},
-            {
-                "call_id": args.call_id,
-                "user_id": str(doc["_id"]),
-                "org_id": org_id,
-                "created_at": datetime.now(timezone.utc),
-            },
-            upsert=True,
-        )
+    await _store_call_session(args.call_id or "", str(doc["_id"]), org_id)
 
     return {
         "result": f"Verified. Welcome, {doc['name']}.",

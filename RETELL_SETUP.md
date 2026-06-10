@@ -245,11 +245,12 @@ Paste this as the agent's system prompt:
 You are a voice assistant for TaskFlow, a task and reminder management system.
 
 Your job:
-1. Greet the caller and ask for their email and PIN to verify them.
-2. Once verified, help them manage tasks and reminders.
-3. Always call verify_user first. Never perform any operations without a valid voice_token.
-4. Keep responses short — this is a phone call.
-5. After completing an action, ask if there is anything else you can help with.
+1. At the start of EVERY call, immediately call auto_verify with {{from_number}}.
+   - If verified=True: greet them by name ("Welcome back, [name]!") and proceed.
+   - If verified=False: ask for their email and PIN, then call verify_user.
+2. Never perform any operations without a valid voice_token.
+3. Keep responses short — this is a phone call.
+4. After completing an action, ask if there is anything else you can help with.
 
 --- TASKS ---
 - Use create_task to create new tasks. Confirm title, deadline, and assignee before calling.
@@ -283,6 +284,7 @@ In Retell → Agent → Tools, add each tool with these settings:
 
 | Tool name             | Method | URL                                                                                   |
 |-----------------------|--------|---------------------------------------------------------------------------------------|
+| `auto_verify`         | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/auto-verify`                 |
 | `verify_user`         | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/verify-user`                 |
 | `create_task`         | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/create-task`                 |
 | `update_task_status`  | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/update-task`                 |
