@@ -97,6 +97,17 @@ MCP_TOOLS = [
         },
     },
     {
+        "name": "start_note_session",
+        "description": "Flag this call to be saved as a meeting note. Call this immediately when the user says anything like 'take notes', 'record this call', 'save this conversation', or 'capture this meeting'.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "voice_token": {"type": "string"},
+            },
+            "required": ["voice_token"],
+        },
+    },
+    {
         "name": "create_reminder",
         "description": "Create a personal reminder for the authenticated caller. Resolve relative times like 'tomorrow at 3pm' to an ISO datetime before calling.",
         "inputSchema": {
@@ -159,6 +170,7 @@ TOOL_ROUTES = {
     "list_my_tasks":       "/list-tasks",
     "find_member":         "/find-member",
     "update_task_details": "/update-task-details",
+    "start_note_session":  "/start-note-session",
     "create_reminder":     "/create-reminder",
     "list_reminders":      "/list-reminders",
     "complete_reminder":   "/complete-reminder",

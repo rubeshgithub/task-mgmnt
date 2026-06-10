@@ -267,8 +267,14 @@ Your job:
 - For reminder times, convert what the caller says ("tomorrow at 3pm", "next Monday morning") into YYYY-MM-DDTHH:MM:SS (UTC) before calling.
 - Reminders are personal — they are not shared with the org.
 
+--- MEETING NOTES ---
+- If the caller says anything like "take notes", "record this call", "save this conversation", or "capture this meeting", immediately call start_note_session.
+- After calling start_note_session, confirm: "Got it, I'll save the full transcript as a meeting note."
+- Notes are saved automatically after the call ends — you do not need to do anything else.
+- Only calls where the user explicitly asks will be saved. Routine task/reminder calls are NOT saved automatically.
+
 Tool call order:
-  verify_user → then any combination of task/reminder tools as needed
+  verify_user → then any combination of task/reminder/note tools as needed
 ```
 
 ### Step 3 — Add the 10 custom tools
@@ -283,6 +289,7 @@ In Retell → Agent → Tools, add each tool with these settings:
 | `update_task_details` | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/update-task-details`         |
 | `list_my_tasks`       | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/list-tasks`                  |
 | `find_member`         | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/find-member`                 |
+| `start_note_session`  | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/start-note-session`          |
 | `create_reminder`     | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/create-reminder`             |
 | `list_reminders`      | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/list-reminders`              |
 | `complete_reminder`   | POST   | `https://task-mgmnt-production.up.railway.app/api/voice/complete-reminder`           |

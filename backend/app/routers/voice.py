@@ -35,10 +35,11 @@ APP_URL = os.getenv("APP_URL", "http://localhost:5173")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _make_voice_token(user_id: str, org_id: str) -> str:
+def _make_voice_token(user_id: str, org_id: str, call_id: str = "") -> str:
     payload = {
         "sub": user_id,
         "org": org_id,
+        "cid": call_id,
         "scope": "voice",
         "exp": datetime.now(timezone.utc) + timedelta(minutes=VOICE_TOKEN_MINUTES),
     }
@@ -117,7 +118,7 @@ async def verify_user(args: VerifyUserArgs, request: Request):
         return {"result": "Incorrect PIN. Please try again."}
 
     org_id = str(doc.get("org_id", ""))
-    token = _make_voice_token(str(doc["_id"]), org_id)
+    token = _make_voice_token(str(doc["_id"]), org_id, args.call_id or "")
 
     # Fetch org name
     org_name = ""
@@ -448,6 +449,27 @@ async def voice_find_member(args: FindMemberArgs, request: Request):
     return {"result": f"I found multiple matches: {', '.join(matches)}. Which one did you mean?"}
 
 
+# ── Tool: start_note_session ─────────────────────────────────────────────────
+
+class StartNoteSessionArgs(BaseModel):
+    voice_token: str
+
+
+@router.post("/start-note-session")
+async def voice_start_note_session(args: StartNoteSessionArgs, request: Request):
+    _verify_retell(request)
+    payload = _decode_voice_token(args.voice_token)
+    call_id = payload.get("cid", "")
+
+    if call_id:
+        await call_sessions_collection.update_one(
+            {"call_id": call_id},
+            {"$set": {"note_enabled": True}},
+        )
+
+    return {"result": "Got it. I'll save the full transcript of this call as a meeting note when we're done."}
+
+
 # ── Tool: create_reminder ─────────────────────────────────────────────────────
 
 class CreateReminderArgs(BaseModel):
@@ -646,6 +668,11 @@ async def retell_webhook(request: Request):
     if not session:
         logger.info("retell_webhook: no session for call_id=%s — skipping", call_id)
         return {"status": "no_session"}
+
+    # Only save if the caller explicitly asked to take notes
+    if not session.get("note_enabled"):
+        await call_sessions_collection.delete_one({"call_id": call_id})
+        return {"status": "notes_not_enabled"}
 
     user_id = session["user_id"]
     org_id = session.get("org_id", "")
