@@ -215,7 +215,10 @@ class TranscriptTurn(BaseModel):
 
 class NoteOut(BaseModel):
     id: str
+    source: str  # "voice" | "manual"
     call_id: str
+    title: Optional[str] = None
+    body: Optional[str] = None
     summary: str
     transcript: str
     transcript_object: list[TranscriptTurn]
@@ -223,3 +226,13 @@ class NoteOut(BaseModel):
     ended_at: Optional[datetime] = None
     created_at: datetime
     duration_seconds: Optional[int] = None
+
+
+class NoteCreate(BaseModel):
+    title: Optional[str] = None
+    body: str
+
+
+class NoteUpdate(BaseModel):
+    title: Optional[str] = None
+    body: Optional[str] = None

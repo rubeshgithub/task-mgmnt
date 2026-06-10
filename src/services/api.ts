@@ -233,7 +233,10 @@ export interface TranscriptTurn {
 
 export interface Note {
   id: string
+  source: "voice" | "manual"
   call_id: string
+  title: string | null
+  body: string | null
   summary: string
   transcript: string
   transcript_object: TranscriptTurn[]
@@ -244,7 +247,9 @@ export interface Note {
 }
 
 export const notesApi = {
-  list:   ()              => request<Note[]>("/notes"),
-  get:    (id: string)    => request<Note>(`/notes/${id}`),
-  delete: (id: string)    => request<void>(`/notes/${id}`, { method: "DELETE" }),
+  list:   ()                                                      => request<Note[]>("/notes"),
+  get:    (id: string)                                            => request<Note>(`/notes/${id}`),
+  create: (data: { title?: string; body: string })               => request<Note>("/notes", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: { title?: string; body?: string })  => request<Note>(`/notes/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  delete: (id: string)                                            => request<void>(`/notes/${id}`, { method: "DELETE" }),
 }

@@ -734,6 +734,7 @@ async def retell_webhook(request: Request):
         return {"status": "empty_transcript"}
 
     doc = {
+        "source": "voice",
         "call_id": call_id,
         "created_by": {"id": user_id, "name": user_doc["name"], "email": user_doc["email"]},
         "org_id": ObjectId(org_id) if org_id else None,
