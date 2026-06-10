@@ -18,7 +18,7 @@ from jose import jwt, JWTError
 from pydantic import BaseModel
 from typing import Optional
 
-from app.database import users_collection, tasks_collection, orgs_collection, reminders_collection
+from app.database import users_collection, tasks_collection, orgs_collection, reminders_collection, notes_collection, call_sessions_collection
 from app.auth import verify_password, hash_password
 from app.models import Priority
 from app.services.notifications import notify_task_assigned, notify_task_completed
@@ -103,6 +103,7 @@ async def _resolve_member(name: str, org_id: str) -> dict | None:
 class VerifyUserArgs(BaseModel):
     email: str
     pin: str
+    call_id: Optional[str] = None   # injected by MCP server from _meta
 
 
 @router.post("/verify-user")
@@ -124,6 +125,19 @@ async def verify_user(args: VerifyUserArgs, request: Request):
         org = await orgs_collection.find_one({"_id": doc["org_id"]})
         if org:
             org_name = org.get("name", "")
+
+    # Store call_id → user mapping so the post-call webhook can attribute the note
+    if args.call_id:
+        await call_sessions_collection.replace_one(
+            {"call_id": args.call_id},
+            {
+                "call_id": args.call_id,
+                "user_id": str(doc["_id"]),
+                "org_id": org_id,
+                "created_at": datetime.now(timezone.utc),
+            },
+            upsert=True,
+        )
 
     return {
         "result": f"Verified. Welcome, {doc['name']}.",
@@ -596,3 +610,70 @@ async def voice_update_reminder(args: UpdateReminderArgs, request: Request):
     if "recurrence" in updates: changed.append(f"recurrence to {updates['recurrence'] or 'none'}")
 
     return {"result": f"Updated. '{doc['title']}' — changed {' and '.join(changed)}. Anything else?"}
+
+
+# ── Retell post-call webhook ──────────────────────────────────────────────────
+
+def _parse_retell_ts(ts) -> datetime | None:
+    if not ts:
+        return None
+    try:
+        ms = int(ts)
+        return datetime.fromtimestamp(ms / 1000 if ms > 1e10 else ms, tz=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
+@router.post("/webhook")
+async def retell_webhook(request: Request):
+    _verify_retell(request)
+    body = await request.json()
+
+    if body.get("event") != "call_analyzed":
+        return {"status": "ignored"}
+
+    call = body.get("call", {})
+    call_id = call.get("call_id", "")
+    transcript = call.get("transcript", "")
+    transcript_object = call.get("transcript_object") or []
+    analysis = call.get("call_analysis") or {}
+    summary = analysis.get("call_summary", "")
+    started_at = _parse_retell_ts(call.get("start_timestamp"))
+    ended_at = _parse_retell_ts(call.get("end_timestamp"))
+
+    # Look up the user who made this call
+    session = await call_sessions_collection.find_one({"call_id": call_id})
+    if not session:
+        logger.info("retell_webhook: no session for call_id=%s — skipping", call_id)
+        return {"status": "no_session"}
+
+    user_id = session["user_id"]
+    org_id = session.get("org_id", "")
+
+    user_doc = await users_collection.find_one({"_id": ObjectId(user_id)})
+    if not user_doc:
+        return {"status": "user_not_found"}
+
+    # Only save notes that had a verified user (non-empty transcript)
+    if not transcript.strip():
+        return {"status": "empty_transcript"}
+
+    doc = {
+        "call_id": call_id,
+        "created_by": {"id": user_id, "name": user_doc["name"], "email": user_doc["email"]},
+        "org_id": ObjectId(org_id) if org_id else None,
+        "transcript": transcript,
+        "transcript_object": [
+            {"role": t.get("role", ""), "content": t.get("content", "")}
+            for t in transcript_object
+        ],
+        "summary": summary,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "created_at": datetime.now(timezone.utc),
+    }
+    await notes_collection.insert_one(doc)
+    await call_sessions_collection.delete_one({"call_id": call_id})
+
+    logger.info("retell_webhook: saved note for call_id=%s user=%s", call_id, user_id)
+    return {"status": "saved"}

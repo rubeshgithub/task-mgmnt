@@ -194,7 +194,11 @@ async def mcp_endpoint(request: Request):
     # ── tools/call ────────────────────────────────────────────────────────────
     if method == "tools/call":
         tool_name = params.get("name")
-        arguments = params.get("arguments", {})
+        arguments = dict(params.get("arguments", {}))
+        # Inject call_id from Retell's _meta so verify_user can store the session mapping
+        call_id = params.get("_meta", {}).get("call_id", "")
+        if call_id and tool_name == "verify_user":
+            arguments["call_id"] = call_id
         route = TOOL_ROUTES.get(tool_name)
 
         if not route:

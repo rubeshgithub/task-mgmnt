@@ -206,3 +206,20 @@ class InvitationPreview(BaseModel):
     role: OrgRole
     email: str
     invited_by_name: str
+
+
+class TranscriptTurn(BaseModel):
+    role: str   # "agent" | "user"
+    content: str
+
+
+class NoteOut(BaseModel):
+    id: str
+    call_id: str
+    summary: str
+    transcript: str
+    transcript_object: list[TranscriptTurn]
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    created_at: datetime
+    duration_seconds: Optional[int] = None

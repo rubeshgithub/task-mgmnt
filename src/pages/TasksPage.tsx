@@ -278,6 +278,12 @@ export function TasksPage() {
             >
               Reminders
             </button>
+            <button
+              onClick={() => navigate({ to: "/notes" })}
+              className="px-3 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Notes
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">

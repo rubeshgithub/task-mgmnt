@@ -225,3 +225,26 @@ export const orgApi = {
     request<Organisation>("/organisations/me", { method: "PATCH", body: JSON.stringify(data) }),
   members: () => request<OrgMember[]>("/organisations/me/members"),
 }
+
+export interface TranscriptTurn {
+  role: "agent" | "user"
+  content: string
+}
+
+export interface Note {
+  id: string
+  call_id: string
+  summary: string
+  transcript: string
+  transcript_object: TranscriptTurn[]
+  started_at: string | null
+  ended_at: string | null
+  created_at: string
+  duration_seconds: number | null
+}
+
+export const notesApi = {
+  list:   ()              => request<Note[]>("/notes"),
+  get:    (id: string)    => request<Note>(`/notes/${id}`),
+  delete: (id: string)    => request<void>(`/notes/${id}`, { method: "DELETE" }),
+}

@@ -6,6 +6,7 @@ import { RegisterPage } from "@/pages/RegisterPage"
 import { SettingsPage } from "@/pages/SettingsPage"
 import { InviteAcceptPage } from "@/pages/InviteAcceptPage"
 import { RemindersPage } from "@/pages/RemindersPage"
+import { NotesPage } from "@/pages/NotesPage"
 
 const isLoggedIn = () => !!localStorage.getItem("auth_token")
 
@@ -64,6 +65,15 @@ const remindersRoute = createRoute({
   component: RemindersPage,
 })
 
+const notesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/notes",
+  beforeLoad: () => {
+    if (!isLoggedIn()) throw redirect({ to: "/login" })
+  },
+  component: NotesPage,
+})
+
 const inviteRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/invite/$token",
@@ -76,6 +86,7 @@ const routeTree = rootRoute.addChildren([
   registerRoute,
   tasksRoute,
   remindersRoute,
+  notesRoute,
   settingsRoute,
   inviteRoute,
 ])

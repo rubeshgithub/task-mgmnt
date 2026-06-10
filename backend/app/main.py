@@ -8,6 +8,7 @@ from app.routers import mcp_server
 from app.routers import reminders
 from app.routers import comments
 from app.routers import attachments
+from app.routers import notes
 from app.scheduler import start_scheduler, stop_scheduler
 
 
@@ -43,6 +44,7 @@ app.include_router(mcp_server.router)
 app.include_router(reminders.router)
 app.include_router(comments.router)
 app.include_router(attachments.router)
+app.include_router(notes.router)
 
 
 @app.get("/health")
