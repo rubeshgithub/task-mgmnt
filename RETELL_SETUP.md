@@ -34,7 +34,7 @@ Users set their voice PIN in the web app at **Settings → My Profile → Voice 
 
 ---
 
-## The 10 voice tools
+## The 12 voice tools
 
 All tool endpoints require the header:
 ```
@@ -221,7 +221,7 @@ POST https://task-mgmnt-production.up.railway.app/api/mcp
 
 It handles:
 - `initialize` — returns server capabilities
-- `tools/list` — returns all 10 tool schemas
+- `tools/list` — returns all 12 tool schemas
 - `tools/call` — proxies calls to the voice API internally
 
 ---
@@ -278,7 +278,7 @@ Tool call order:
   verify_user → then any combination of task/reminder/note tools as needed
 ```
 
-### Step 3 — Add the 10 custom tools
+### Step 3 — Add the 12 custom tools
 
 In Retell → Agent → Tools, add each tool with these settings:
 
@@ -304,11 +304,23 @@ x-retell-api-key: <your RETELL_API_KEY from Railway env vars>
 
 Use the JSON schemas defined in the MCP server (`/api/mcp` → `tools/list`) as the tool input schemas.
 
-### Step 4 — Assign a phone number
+### Step 4 — Configure the post-call webhook
+
+In Retell → Agent → **Post-call Webhook**, set:
+
+```
+https://task-mgmnt-production.up.railway.app/api/voice/webhook
+```
+
+Retell signs webhook payloads with **HMAC-SHA256** (using your `RETELL_API_KEY` as the secret) and sends the signature in the `x-retell-signature` header. The backend verifies this automatically — no extra config needed.
+
+The webhook fires on `call_analyzed` events and saves the transcript + summary as a meeting note, but **only** for calls where the caller said "take notes" (i.e. `start_note_session` was called during the call).
+
+### Step 5 — Assign a phone number
 
 In Retell → Phone Numbers → **Import** or **Buy** a number, then assign it to the agent.
 
-### Step 5 — Test the call
+### Step 6 — Test the call
 
 1. Make sure a user account exists in the web app with a voice PIN set (Settings → Voice PIN).
 2. Call the Retell number.
@@ -316,6 +328,7 @@ In Retell → Phone Numbers → **Import** or **Buy** a number, then assign it t
 4. Try creating a task: *"Create a high priority task called Follow up with Sarah, due next Friday"*
 5. Try creating a reminder: *"Remind me to take medication tomorrow at 8am"*
 6. Try listing: *"What tasks do I have?"* or *"What are my reminders?"*
+7. Try meeting notes: *"Take notes on this call"* — after hanging up, check the Notes tab in the web app
 
 ---
 
@@ -349,7 +362,8 @@ SMS threshold: only `high` and `urgent` priority tasks trigger SMS. Reminders al
 
 | File                                  | What it does                                        |
 |---------------------------------------|-----------------------------------------------------|
-| `backend/app/routers/voice.py`        | All 10 voice tool endpoints                         |
+| `backend/app/routers/voice.py`        | All 12 voice tool endpoints + webhook receiver      |
+| `backend/app/routers/notes.py`        | REST CRUD for notes (list, create, update, delete)  |
 | `backend/app/routers/mcp_server.py`   | MCP JSON-RPC 2.0 wrapper around voice endpoints     |
 | `backend/app/scheduler.py`            | Fires reminder and deadline notifications on a timer |
 | `backend/app/services/notifications.py` | Email + SMS dispatch logic                        |

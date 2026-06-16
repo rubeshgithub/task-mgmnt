@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { PriorityBadge, type Priority } from "./PriorityBadge"
 import { DeadlineIndicator } from "./DeadlineIndicator"
@@ -37,18 +38,30 @@ interface KanbanBoardProps {
   tasks: KanbanTask[]
   selectedId: string | null
   onTaskClick: (id: string) => void
+  onStatusChange?: (taskId: string, newStatus: TaskStatus) => void
 }
 
 function KanbanCard({
-  task, isSelected, onClick,
-}: { task: KanbanTask; isSelected: boolean; onClick: () => void }) {
+  task, isSelected, onClick, onDragStart, onDragEnd,
+}: {
+  task: KanbanTask
+  isSelected: boolean
+  onClick: () => void
+  onDragStart: (e: React.DragEvent) => void
+  onDragEnd: () => void
+}) {
   return (
-    <button
-      type="button"
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick() }}
       className={cn(
         "w-full text-left bg-card rounded-lg border border-l-4 p-3 flex flex-col gap-2",
-        "hover:shadow-md transition-all duration-150",
+        "hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none",
         priorityBorder[task.priority],
         isSelected && "ring-2 ring-primary/40 bg-primary/[0.03]"
       )}
@@ -86,15 +99,58 @@ function KanbanCard({
           )}
         </div>
       )}
-    </button>
+    </div>
   )
 }
 
-export function KanbanBoard({ tasks, selectedId, onTaskClick }: KanbanBoardProps) {
+export function KanbanBoard({ tasks, selectedId, onTaskClick, onStatusChange }: KanbanBoardProps) {
+  const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+
   const byStatus: Record<string, KanbanTask[]> = {}
   for (const col of COLUMNS) byStatus[col.status] = []
   for (const task of tasks) {
     if (byStatus[task.status]) byStatus[task.status].push(task)
+  }
+
+  const handleDragStart = (e: React.DragEvent, taskId: string) => {
+    e.dataTransfer.setData("taskId", taskId)
+    e.dataTransfer.effectAllowed = "move"
+    setDraggingId(taskId)
+  }
+
+  const handleDragEnd = () => {
+    setDraggingId(null)
+    setDragOverStatus(null)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+  }
+
+  const handleDragEnter = (e: React.DragEvent, status: TaskStatus) => {
+    e.preventDefault()
+    setDragOverStatus(status)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOverStatus(null)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent, status: TaskStatus) => {
+    e.preventDefault()
+    const taskId = e.dataTransfer.getData("taskId")
+    setDragOverStatus(null)
+    setDraggingId(null)
+    if (taskId && onStatusChange) {
+      const task = tasks.find(t => t.id === taskId)
+      if (task && task.status !== status) {
+        onStatusChange(taskId, status)
+      }
+    }
   }
 
   return (
@@ -102,10 +158,18 @@ export function KanbanBoard({ tasks, selectedId, onTaskClick }: KanbanBoardProps
       <div className="flex gap-3 p-3 h-full" style={{ minWidth: "max-content" }}>
         {COLUMNS.map(({ status, label, dot, header }) => {
           const col = byStatus[status] ?? []
+          const isOver = dragOverStatus === status
           return (
             <div
               key={status}
-              className="w-64 shrink-0 flex flex-col rounded-xl border bg-muted/30 overflow-hidden"
+              onDragOver={handleDragOver}
+              onDragEnter={(e) => handleDragEnter(e, status)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, status)}
+              className={cn(
+                "w-64 shrink-0 flex flex-col rounded-xl border bg-muted/30 overflow-hidden transition-colors duration-150",
+                isOver && "bg-primary/5 border-primary/30 ring-2 ring-primary/20"
+              )}
             >
               <div className={cn("px-3 py-2.5 flex items-center gap-2 shrink-0 border-b", header)}>
                 <span className={cn("h-2 w-2 rounded-full shrink-0", dot)} />
@@ -114,17 +178,30 @@ export function KanbanBoard({ tasks, selectedId, onTaskClick }: KanbanBoardProps
                   {col.length}
                 </span>
               </div>
-              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              <div className={cn(
+                "flex-1 overflow-y-auto p-2 space-y-2 transition-colors duration-150",
+                isOver && col.length === 0 && "bg-primary/5"
+              )}>
                 {col.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground/40 text-center py-6">No tasks</p>
+                  <p className={cn(
+                    "text-[11px] text-center py-6 transition-colors",
+                    isOver ? "text-primary/50" : "text-muted-foreground/40"
+                  )}>
+                    {isOver ? "Drop here" : "No tasks"}
+                  </p>
                 ) : col.map((task) => (
                   <KanbanCard
                     key={task.id}
                     task={task}
                     isSelected={selectedId === task.id}
                     onClick={() => onTaskClick(task.id)}
+                    onDragStart={(e) => handleDragStart(e, task.id)}
+                    onDragEnd={handleDragEnd}
                   />
                 ))}
+                {isOver && col.length > 0 && (
+                  <div className="h-10 rounded-lg border-2 border-dashed border-primary/30 bg-primary/5" />
+                )}
               </div>
             </div>
           )

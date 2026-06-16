@@ -444,6 +444,7 @@ export function TasksPage() {
                   tasks={sortedTasks}
                   selectedId={selectedId}
                   onTaskClick={handleTaskClick}
+                  onStatusChange={(taskId, newStatus) => handleStatusChange(taskId, newStatus)}
                 />
               ) : viewMode === "calendar" ? (
                 <CalendarView

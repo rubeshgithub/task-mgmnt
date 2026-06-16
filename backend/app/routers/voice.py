@@ -9,6 +9,9 @@ Auth flow:
 """
 import os
 import asyncio
+import hashlib
+import hmac
+import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -696,8 +699,20 @@ def _parse_retell_ts(ts) -> datetime | None:
 
 @router.post("/webhook")
 async def retell_webhook(request: Request):
-    _verify_retell(request)
-    body = await request.json()
+    body_bytes = await request.body()
+
+    # Retell webhooks use HMAC-SHA256, not the API key header
+    if RETELL_API_KEY:
+        signature = request.headers.get("x-retell-signature", "")
+        expected = hmac.new(
+            RETELL_API_KEY.encode(),
+            body_bytes,
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise HTTPException(status_code=403, detail="Unauthorized")
+
+    body = json.loads(body_bytes)
 
     if body.get("event") != "call_analyzed":
         return {"status": "ignored"}
