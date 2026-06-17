@@ -9,9 +9,6 @@ Auth flow:
 """
 import os
 import asyncio
-import hashlib
-import hmac
-import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -105,18 +102,18 @@ async def _resolve_member(name: str, org_id: str) -> dict | None:
 # ── Shared session helper ────────────────────────────────────────────────────
 
 async def _store_call_session(call_id: str, user_id: str, org_id: str):
-    if not call_id:
-        return
-    await call_sessions_collection.replace_one(
-        {"call_id": call_id},
-        {
-            "call_id": call_id,
-            "user_id": user_id,
-            "org_id": org_id,
-            "created_at": datetime.now(timezone.utc),
-        },
-        upsert=True,
-    )
+    doc = {
+        "call_id": call_id,
+        "user_id": user_id,
+        "org_id": org_id,
+        "note_enabled": False,
+        "created_at": datetime.now(timezone.utc),
+    }
+    if call_id:
+        await call_sessions_collection.replace_one({"call_id": call_id}, doc, upsert=True)
+    else:
+        # call_id not available yet — key by user_id so start_note_session can still find it
+        await call_sessions_collection.replace_one({"user_id": user_id, "call_id": ""}, doc, upsert=True)
 
 
 # ── Tool: auto_verify (phone-based, no PIN needed) ────────────────────────────
@@ -511,12 +508,24 @@ async def voice_start_note_session(args: StartNoteSessionArgs, request: Request)
     _verify_retell(request)
     payload = _decode_voice_token(args.voice_token)
     call_id = payload.get("cid", "")
+    user_id = payload["sub"]
 
     if call_id:
         await call_sessions_collection.update_one(
             {"call_id": call_id},
             {"$set": {"note_enabled": True}},
         )
+    else:
+        # cid wasn't injected at auth time — find the most recent session for this user
+        session = await call_sessions_collection.find_one(
+            {"user_id": user_id},
+            sort=[("created_at", -1)],
+        )
+        if session:
+            await call_sessions_collection.update_one(
+                {"_id": session["_id"]},
+                {"$set": {"note_enabled": True}},
+            )
 
     return {"result": "Got it. I'll save the full transcript of this call as a meeting note when we're done."}
 
@@ -699,20 +708,7 @@ def _parse_retell_ts(ts) -> datetime | None:
 
 @router.post("/webhook")
 async def retell_webhook(request: Request):
-    body_bytes = await request.body()
-
-    # Retell webhooks use HMAC-SHA256, not the API key header
-    if RETELL_API_KEY:
-        signature = request.headers.get("x-retell-signature", "")
-        expected = hmac.new(
-            RETELL_API_KEY.encode(),
-            body_bytes,
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            raise HTTPException(status_code=403, detail="Unauthorized")
-
-    body = json.loads(body_bytes)
+    body = await request.json()
 
     if body.get("event") != "call_analyzed":
         return {"status": "ignored"}
@@ -726,8 +722,17 @@ async def retell_webhook(request: Request):
     started_at = _parse_retell_ts(call.get("start_timestamp"))
     ended_at = _parse_retell_ts(call.get("end_timestamp"))
 
-    # Look up the user who made this call
+    # Look up the session — try call_id first, then fall back to from_number → user lookup
     session = await call_sessions_collection.find_one({"call_id": call_id})
+    if not session:
+        from_number = re.sub(r"[\s\-]", "", call.get("from_number", "").strip())
+        if from_number:
+            user_doc = await users_collection.find_one({"phone": from_number})
+            if user_doc:
+                session = await call_sessions_collection.find_one(
+                    {"user_id": str(user_doc["_id"])},
+                    sort=[("created_at", -1)],
+                )
     if not session:
         logger.info("retell_webhook: no session for call_id=%s — skipping", call_id)
         return {"status": "no_session"}

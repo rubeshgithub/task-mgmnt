@@ -219,8 +219,11 @@ async def mcp_endpoint(request: Request):
     if method == "tools/call":
         tool_name = params.get("name")
         arguments = dict(params.get("arguments", {}))
-        # Inject call_id from Retell's _meta so verify_user/auto_verify can store the session
-        call_id = params.get("_meta", {}).get("call_id", "")
+        # Retell sends call_id in _meta OR as an HTTP header — try both
+        call_id = (
+            params.get("_meta", {}).get("call_id", "")
+            or request.headers.get("x-retell-call-id", "")
+        )
         if call_id and tool_name in ("verify_user", "auto_verify"):
             arguments["call_id"] = call_id
         route = TOOL_ROUTES.get(tool_name)

@@ -42,10 +42,11 @@ interface KanbanBoardProps {
 }
 
 function KanbanCard({
-  task, isSelected, onClick, onDragStart, onDragEnd,
+  task, isSelected, isDragging, onClick, onDragStart, onDragEnd,
 }: {
   task: KanbanTask
   isSelected: boolean
+  isDragging: boolean
   onClick: () => void
   onDragStart: (e: React.DragEvent) => void
   onDragEnd: () => void
@@ -63,7 +64,8 @@ function KanbanCard({
         "w-full text-left bg-card rounded-lg border border-l-4 p-3 flex flex-col gap-2",
         "hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none",
         priorityBorder[task.priority],
-        isSelected && "ring-2 ring-primary/40 bg-primary/[0.03]"
+        isSelected && "ring-2 ring-primary/40 bg-primary/[0.03]",
+        isDragging && "opacity-40"
       )}
     >
       <p className="text-xs font-semibold leading-snug line-clamp-3 text-foreground">{task.title}</p>
@@ -194,6 +196,7 @@ export function KanbanBoard({ tasks, selectedId, onTaskClick, onStatusChange }: 
                     key={task.id}
                     task={task}
                     isSelected={selectedId === task.id}
+                    isDragging={draggingId === task.id}
                     onClick={() => onTaskClick(task.id)}
                     onDragStart={(e) => handleDragStart(e, task.id)}
                     onDragEnd={handleDragEnd}
