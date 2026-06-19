@@ -6,15 +6,17 @@ import calendar as _cal
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.database import tasks_collection, users_collection, reminders_collection
-from app.services.notifications import notify_deadline_approaching, notify_task_overdue, notify_reminder
+from app.services.notifications import notify_deadline_approaching, notify_task_overdue, notify_reminder, notify_morning_digest
 from bson import ObjectId
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone="UTC")
 
 DONE = {"completed", "reviewed"}
+ALBERTA_TZ = ZoneInfo("America/Edmonton")
 
 
 def _next_occurrence(remind_at: datetime, recurrence: str) -> datetime:
@@ -119,10 +121,95 @@ async def _check_reminders():
         logger.info("Reminder notification sent: %s", reminder["title"])
 
 
+async def _send_morning_digest():
+    """Send each user a targeted briefing: overdue + due today + due tomorrow + reminders today."""
+    app_url = os.getenv("APP_URL", "http://localhost:5173")
+
+    # Define day boundaries in Alberta time, converted to UTC for MongoDB
+    now_ab = datetime.now(ALBERTA_TZ)
+    today_ab = now_ab.date()
+    today_start = datetime(today_ab.year, today_ab.month, today_ab.day, tzinfo=ALBERTA_TZ)
+    today_end = today_start + timedelta(days=1)
+    tomorrow_end = today_start + timedelta(days=2)
+
+    # Iterate all users
+    async for user in users_collection.find({"email": {"$exists": True}}):
+        user_id = str(user["_id"])
+        email = user.get("email", "")
+        phone = user.get("phone")
+        first_name = user.get("name", "there").split()[0]
+        if not email:
+            continue
+
+        # Overdue: deadline passed, not done, assigned to this user
+        overdue_cur = tasks_collection.find({
+            "deadline": {"$lt": today_start},
+            "status": {"$nin": list(DONE)},
+            "assigned_to": {"$elemMatch": {"id": user_id}},
+            "deleted_at": None,
+        })
+        overdue = [
+            {"title": t["title"], "note": t["deadline"].strftime("was due %b %-d") if t.get("deadline") else None}
+            async for t in overdue_cur
+        ]
+
+        # Due today
+        due_today_cur = tasks_collection.find({
+            "deadline": {"$gte": today_start, "$lt": today_end},
+            "status": {"$nin": list(DONE)},
+            "assigned_to": {"$elemMatch": {"id": user_id}},
+            "deleted_at": None,
+        })
+        due_today = [{"title": t["title"]} async for t in due_today_cur]
+
+        # Due tomorrow
+        due_tomorrow_cur = tasks_collection.find({
+            "deadline": {"$gte": today_end, "$lt": tomorrow_end},
+            "status": {"$nin": list(DONE)},
+            "assigned_to": {"$elemMatch": {"id": user_id}},
+            "deleted_at": None,
+        })
+        due_tomorrow = [{"title": t["title"]} async for t in due_tomorrow_cur]
+
+        # Reminders firing today
+        reminders_cur = reminders_collection.find({
+            "created_by.id": user_id,
+            "status": "pending",
+            "remind_at": {"$gte": today_start, "$lt": today_end},
+        })
+        reminders_today = [
+            {"title": r["title"], "note": r["remind_at"].astimezone(ALBERTA_TZ).strftime("%-I:%M %p") if r.get("remind_at") else None}
+            async for r in reminders_cur
+        ]
+
+        total = len(overdue) + len(due_today) + len(due_tomorrow) + len(reminders_today)
+        if total == 0:
+            continue
+
+        try:
+            await notify_morning_digest(
+                to_email=email,
+                to_phone=phone,
+                first_name=first_name,
+                overdue=overdue,
+                due_today=due_today,
+                due_tomorrow=due_tomorrow,
+                reminders_today=reminders_today,
+                app_url=app_url,
+            )
+            logger.info("Morning digest sent to %s (%d items)", email, total)
+        except Exception as e:
+            logger.error("Morning digest failed for %s: %s", email, e)
+
+
 def start_scheduler():
     scheduler.add_job(_check_deadlines, "interval", hours=1, id="deadline_check", replace_existing=True)
     scheduler.add_job(_check_overdue, "interval", hours=1, id="overdue_check", replace_existing=True)
     scheduler.add_job(_check_reminders, "interval", minutes=5, id="reminder_check", replace_existing=True)
+    scheduler.add_job(
+        _send_morning_digest, "cron", hour=8, minute=0,
+        timezone="America/Edmonton", id="morning_digest", replace_existing=True,
+    )
     scheduler.start()
     logger.info("Scheduler started")
 

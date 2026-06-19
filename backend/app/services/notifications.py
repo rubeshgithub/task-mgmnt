@@ -6,7 +6,7 @@ Notification routing:
 Priority thresholds for SMS: urgent and high only.
 """
 import logging
-from app.services.email import send_invitation_email, send_task_email
+from app.services.email import send_invitation_email, send_task_email, send_digest_email
 from app.services.sms import send_sms
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,42 @@ async def notify_deadline_approaching(
     if assignee_phone and task_priority in SMS_PRIORITIES:
         msg = f"TaskFlow: '{task_title}' is due in {label}. Priority: {task_priority.upper()}."
         await send_sms(assignee_phone, msg)
+
+
+# ── Morning digest ───────────────────────────────────────────────────────────
+
+async def notify_morning_digest(
+    to_email: str,
+    to_phone: str | None,
+    first_name: str,
+    overdue: list[dict],
+    due_today: list[dict],
+    due_tomorrow: list[dict],
+    reminders_today: list[dict],
+    app_url: str,
+):
+    total = len(overdue) + len(due_today) + len(due_tomorrow) + len(reminders_today)
+    if total == 0:
+        return
+    await send_digest_email(
+        to=to_email,
+        first_name=first_name,
+        overdue=overdue,
+        due_today=due_today,
+        due_tomorrow=due_tomorrow,
+        reminders_today=reminders_today,
+        app_url=app_url,
+    )
+    # SMS only when there's something needing immediate attention
+    if to_phone and (overdue or due_today):
+        parts = []
+        if overdue:
+            parts.append(f"{len(overdue)} overdue")
+        if due_today:
+            parts.append(f"{len(due_today)} due today")
+        if reminders_today:
+            parts.append(f"{len(reminders_today)} reminder{'s' if len(reminders_today) > 1 else ''}")
+        await send_sms(to_phone, f"IppoAssist morning: {', '.join(parts)}. Open your app for details.")
 
 
 # ── Task overdue ──────────────────────────────────────────────────────────────

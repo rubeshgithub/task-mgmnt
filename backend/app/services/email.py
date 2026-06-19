@@ -87,6 +87,77 @@ async def send_invitation_email(to_email: str, org_name: str, invite_url: str, i
     await _send(to_email, subject, html, text)
 
 
+async def send_digest_email(
+    to: str,
+    first_name: str,
+    overdue: list[dict],
+    due_today: list[dict],
+    due_tomorrow: list[dict],
+    reminders_today: list[dict],
+    app_url: str,
+):
+    total = len(overdue) + len(due_today) + len(due_tomorrow) + len(reminders_today)
+    if total == 0:
+        return
+
+    def _section(color: str, emoji: str, label: str, items: list[dict], note_key: str = "note") -> str:
+        if not items:
+            return ""
+        rows = "".join(
+            f'<li style="margin:6px 0;font-size:14px;color:#374151">'
+            f'{item["title"]}'
+            f'{"<span style=\'color:#9ca3af;font-size:12px\'> — " + item[note_key] + "</span>" if item.get(note_key) else ""}'
+            f'</li>'
+            for item in items
+        )
+        return f"""
+        <div style="margin:20px 0">
+          <p style="margin:0 0 6px;font-weight:700;font-size:13px;text-transform:uppercase;
+                    letter-spacing:.05em;color:{color}">{emoji} {label} ({len(items)})</p>
+          <ul style="margin:0;padding-left:18px">{rows}</ul>
+        </div>"""
+
+    sections = (
+        _section("#dc2626", "🔴", "Overdue", overdue)
+        + _section("#2563eb", "📅", "Due Today", due_today)
+        + _section("#d97706", "🗓️", "Due Tomorrow", due_tomorrow)
+        + _section("#059669", "⏰", "Reminders Today", reminders_today)
+    )
+
+    html = f"""
+    <div style="font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;
+                max-width:560px;margin:0 auto;padding:32px 24px;color:#111827">
+      <h2 style="font-size:20px;font-weight:700;margin:0 0 4px;color:#1A55E3">Good morning, {first_name}! 👋</h2>
+      <p style="color:#6b7280;font-size:14px;margin:0 0 24px">Here's your daily briefing from IppoAssist.</p>
+      {sections}
+      <div style="margin-top:28px">
+        <a href="{app_url}/tasks" style="display:inline-block;padding:11px 24px;
+           background:#1A55E3;color:#fff;border-radius:8px;text-decoration:none;
+           font-weight:600;font-size:14px;margin-right:8px">Open Tasks</a>
+        <a href="{app_url}/reminders" style="display:inline-block;padding:11px 24px;
+           background:#f3f4f6;color:#374151;border-radius:8px;text-decoration:none;
+           font-weight:600;font-size:14px">Reminders</a>
+      </div>
+      <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
+      <p style="color:#9ca3af;font-size:12px;margin:0">
+        IppoAssist daily digest · You're receiving this as a member of your workspace.
+      </p>
+    </div>"""
+
+    parts = []
+    if overdue:
+        parts.append(f"{len(overdue)} overdue")
+    if due_today:
+        parts.append(f"{len(due_today)} due today")
+    if due_tomorrow:
+        parts.append(f"{len(due_tomorrow)} due tomorrow")
+    if reminders_today:
+        parts.append(f"{len(reminders_today)} reminder{'s' if len(reminders_today) > 1 else ''} today")
+    text = f"Good morning {first_name}! Your IppoAssist briefing: {', '.join(parts)}. Open the app for details: {app_url}"
+
+    await _send(to, "Your daily IppoAssist briefing", html, text)
+
+
 async def send_task_email(
     to: str,
     subject: str,
