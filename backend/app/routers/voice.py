@@ -12,6 +12,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException, Header, Request
 from jose import jwt, JWTError
@@ -31,6 +32,7 @@ VOICE_SECRET = os.getenv("VOICE_JWT_SECRET", "voice-secret-change-this")
 VOICE_TOKEN_MINUTES = 15
 RETELL_API_KEY = os.getenv("RETELL_API_KEY", "")
 APP_URL = os.getenv("APP_URL", "http://localhost:5173")
+ALBERTA_TZ = ZoneInfo("America/Edmonton")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -66,16 +68,16 @@ def _verify_retell(request: Request):
 
 
 def _parse_remind_at(raw: str) -> datetime | None:
-    """Parse ISO datetime string for remind_at. Falls back to date-only at 09:00 UTC."""
+    """Parse ISO datetime string for remind_at. Treats naive datetimes as Alberta (Mountain) time."""
     raw = raw.strip().rstrip("Z")
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
         try:
-            return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+            return datetime.strptime(raw, fmt).replace(tzinfo=ALBERTA_TZ)
         except ValueError:
             continue
     parsed = _parse_deadline(raw)
     if parsed:
-        return parsed.replace(hour=9, minute=0, second=0)
+        return parsed.replace(hour=9, minute=0, second=0, tzinfo=ALBERTA_TZ)
     return None
 
 
@@ -148,12 +150,15 @@ async def voice_auto_verify(args: AutoVerifyArgs, request: Request):
             org_name = org.get("name", "")
 
     first_name = doc["name"].split()[0]
+    now_local = datetime.now(ALBERTA_TZ)
     return {
         "result": f"Welcome back, {first_name}! How can I help you today?",
         "voice_token": token,
         "user_name": doc["name"],
         "org_name": org_name,
         "verified": True,
+        "today_date": now_local.strftime("%Y-%m-%d"),
+        "timezone": "Mountain Time (Alberta) — MST UTC-7 / MDT UTC-6",
     }
 
 
@@ -188,11 +193,14 @@ async def verify_user(args: VerifyUserArgs, request: Request):
     # Store call_id → user mapping so the post-call webhook can attribute the note
     await _store_call_session(args.call_id or "", str(doc["_id"]), org_id)
 
+    now_local = datetime.now(ALBERTA_TZ)
     return {
         "result": f"Verified. Welcome, {doc['name']}.",
         "voice_token": token,
         "user_name": doc["name"],
         "org_name": org_name,
+        "today_date": now_local.strftime("%Y-%m-%d"),
+        "timezone": "Mountain Time (Alberta) — MST UTC-7 / MDT UTC-6",
     }
 
 
